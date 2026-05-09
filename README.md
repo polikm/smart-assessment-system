@@ -1,4 +1,4 @@
-# 智测云 - AI 智能测评与学情分析系统
+# AI 智能测评与学情分析系统
 
 <p align="center">
   <img src="https://img.shields.io/badge/React-18-blue?style=flat-square&logo=react" />
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <b>AI 驱动的 K-9 素质教育测评平台</b>
+  <b>AI 驱动的 K12 素质教育测评平台</b>
 </p>
 
 <p align="center">
@@ -195,23 +195,22 @@ smart-assessment-system/
 
 ## 系统截图
 
-> 此处放置系统截图
 
 ### 首页
 
-![首页截图](screenshots/home.png)
+![首页截图](https://trae-forum-cdn.trae.com.cn/prod/original/3X/3/d/3d27387638ef36ef110aa9cc10472d835615f769.jpeg)
 
 ### 学生测评
 
-![测评截图](screenshots/exam.png)
+![测评截图](https://trae-forum-cdn.trae.com.cn/prod/original/3X/a/2/a259006bc05095c71603639859f50fbee70d5d67.png)
 
 ### AI 分析报告
 
-![报告截图](screenshots/report.png)
+![报告截图](https://trae-forum-cdn.trae.com.cn/prod/original/3X/c/8/c8efc445826511ae5eb88dc2831185410d755ec6.jpeg)
 
 ### 管理后台
 
-![后台截图](screenshots/admin.png)
+![后台截图](https://trae-forum-cdn.trae.com.cn/prod/original/3X/7/1/716e26f21822be4826bee349f20b4fabb568f949.png)
 
 ---
 
