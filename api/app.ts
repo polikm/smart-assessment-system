@@ -22,12 +22,17 @@ import classesRoutes from './routes/classes.js'
 import noticesRoutes from './routes/notices.js'
 import dashboardRoutes from './routes/dashboard.js'
 import configRoutes from './routes/config.js'
+import knowledgeRoutes from './routes/knowledge.js'
+import certificatesRoutes from './routes/certificates.js'
+import faqRoutes from './routes/faq.js'
+import { initDb } from './db.js'
+import { initAllDimensions } from './services/dimensionService.js'
+import { migrationService } from './services/migrationService.js'
+import { authMiddleware } from './middleware/auth.js'
 
-// for esm mode
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// load env
 dotenv.config()
 
 const app: express.Application = express()
@@ -50,6 +55,32 @@ app.use('/api/classes', classesRoutes)
 app.use('/api/notices', noticesRoutes)
 app.use('/api/dashboard', dashboardRoutes)
 app.use('/api/config', configRoutes)
+app.use('/api/knowledge', knowledgeRoutes)
+app.use('/api/certificates', certificatesRoutes)
+app.use('/api/faq', faqRoutes)
+
+// 迁移API
+app.post('/api/migrate', authMiddleware, async (req: any, res) => {
+  try {
+    const result = await migrationService.migrateStudentProfiles();
+    res.json(result);
+  } catch (error) {
+    console.error('[Migration] API error:', error);
+    res.status(500).json({ success: false, error: 'Migration failed' });
+  }
+});
+
+async function initServer() {
+  try {
+    await initDb();
+    console.log('[Server] Database initialized');
+    await initAllDimensions();
+    console.log('[Server] Dimensions initialized');
+  } catch (err) {
+    console.error('[Server] Initialization error:', err);
+  }
+}
+initServer();
 
 /**
  * health

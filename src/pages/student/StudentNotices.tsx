@@ -4,6 +4,7 @@ import { noticeApi, studentApi } from '../../api/client';
 import { Bell, Mail, Calendar, Eye, Award } from 'lucide-react';
 import AdmissionPoster from '../../components/AdmissionPoster';
 import { posterTemplates, type PosterData } from '../../utils/posterCanvas';
+import { formatDate } from '../../utils/dateFormat';
 
 export default function StudentNotices() {
   const { user } = useAuthStore();
@@ -53,7 +54,7 @@ export default function StudentNotices() {
           level: data.level || 'B',
           score: data.score || 0,
           schoolName: data.schoolName || '未来科技学院',
-          date: data.date || new Date(notice.sent_at).toLocaleDateString('zh-CN'),
+          date: data.date || formatDate(notice.sent_at),
           phone: data.phone || '400-888-8888',
         };
       } catch (e) {}
@@ -71,7 +72,7 @@ export default function StudentNotices() {
       level: levelMatch ? levelMatch[1] : 'B',
       score: scoreMatch ? parseInt(scoreMatch[1]) : 85,
       schoolName: '未来科技学院',
-      date: new Date(notice.sent_at).toLocaleDateString('zh-CN'),
+      date: formatDate(notice.sent_at),
       phone: '400-888-8888',
     };
   };
@@ -161,7 +162,7 @@ export default function StudentNotices() {
                     <div className="flex items-center gap-3 mt-2">
                       <span className="flex items-center gap-1 text-xs text-slate-400">
                         <Calendar size={12} />
-                        {new Date(notice.sent_at).toLocaleDateString('zh-CN')}
+                        {formatDate(notice.sent_at)}
                       </span>
                       <span className="flex items-center gap-1 text-xs text-blue-500">
                         <Eye size={12} />

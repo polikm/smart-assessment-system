@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { questionApi } from '../../api/client';
-import { Plus, X, Save, Trash2, Sparkles, CheckCircle, Search, Eye, Star, Edit3 } from 'lucide-react';
+import { Plus, X, Save, Trash2, Sparkles, CheckCircle, Search, Eye, Star, Edit3, Database, RefreshCw, Play } from 'lucide-react';
 
 export default function AdminQuestions() {
   const [questions, setQuestions] = useState<any[]>([]);
@@ -35,8 +35,13 @@ export default function AdminQuestions() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Question Stats State
+  const [questionStats, setQuestionStats] = useState<any>(null);
+  const [generating, setGenerating] = useState(false);
+
   useEffect(() => {
     loadQuestions();
+    loadQuestionStats();
   }, [filter, pagination.page, pagination.pageSize]);
 
   const loadQuestions = async () => {
@@ -57,6 +62,65 @@ export default function AdminQuestions() {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadQuestionStats = async () => {
+    try {
+      const statsData = await questionApi.statistics();
+      if (statsData.success) {
+        setQuestionStats({
+          total: statsData.overview?.total_questions || 0,
+          approved: statsData.overview?.approved_count || 0,
+          pending: statsData.overview?.pending_count || 0,
+          avgDifficulty: Math.round((statsData.overview?.avg_difficulty || 0) * 10) / 10,
+          byCourse: (statsData.byCourse || []).reduce((acc: any, item: any) => {
+            acc[item.course_type] = item.count;
+            return acc;
+          }, {}),
+          byDimension: statsData.byDimension || [],
+          mostUsed: statsData.mostUsed || [],
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const refreshQuestionStats = async () => {
+    await loadQuestionStats();
+  };
+
+  const clearAllQuestions = async () => {
+    if (!confirm('确定要清空所有题目吗？')) return;
+    try {
+      await fetch('/api/questions/all', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }
+      });
+      alert('已清空所有题目');
+      refreshQuestionStats();
+      loadQuestions();
+    } catch (e) {
+      console.error(e);
+      alert('清空失败');
+    }
+  };
+
+  const startFullRegenerate = async () => {
+    if (!confirm('确定要重新生成所有题目吗？这将清空现有题目。')) return;
+    try {
+      setGenerating(true);
+      await fetch('/api/questions/full-regenerate', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` }
+      });
+      alert('已开始后台生成，请稍后查看统计');
+    } catch (e) {
+      console.error(e);
+      alert('启动失败');
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -201,6 +265,37 @@ export default function AdminQuestions() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="text-2xl font-bold text-slate-800">题库管理</h1>
         <div className="flex gap-3">
+          <button
+            onClick={refreshQuestionStats}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <RefreshCw size={16} />
+            刷新统计
+          </button>
+          <button
+            onClick={clearAllQuestions}
+            className="px-4 py-2 text-red-600 bg-red-50 hover:bg-red-100 rounded-xl flex items-center gap-2 text-sm font-medium transition-colors"
+          >
+            <Trash2 size={16} />
+            清空题库
+          </button>
+          <button
+            onClick={startFullRegenerate}
+            disabled={generating}
+            className="px-4 py-2 bg-emerald-500 text-white rounded-xl flex items-center gap-2 text-sm font-medium hover:bg-emerald-600 transition-colors disabled:opacity-50"
+          >
+            {generating ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                生成中...
+              </>
+            ) : (
+              <>
+                <Play size={16} />
+                批量生成
+              </>
+            )}
+          </button>
           <button onClick={() => setShowAiModal(true)} className="btn-secondary flex items-center gap-2">
             <Sparkles size={18} />
             AI出题
@@ -211,6 +306,70 @@ export default function AdminQuestions() {
           </button>
         </div>
       </div>
+
+      {/* Stats Cards */}
+      {questionStats && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="glass-card rounded-2xl p-5 text-center">
+              <Database size={24} className="mx-auto text-blue-500 mb-2" />
+              <p className="text-2xl font-bold text-slate-800">{questionStats.total || 0}</p>
+              <p className="text-xs text-slate-500">总题数</p>
+            </div>
+            <div className="glass-card rounded-2xl p-5 text-center">
+              <CheckCircle size={24} className="mx-auto text-emerald-500 mb-2" />
+              <p className="text-2xl font-bold text-slate-800">{questionStats.approved || 0}</p>
+              <p className="text-xs text-slate-500">已审核</p>
+            </div>
+            <div className="glass-card rounded-2xl p-5 text-center">
+              <Star size={24} className="mx-auto text-amber-500 mb-2" />
+              <p className="text-2xl font-bold text-slate-800">{questionStats.avgDifficulty || 0}</p>
+              <p className="text-xs text-slate-500">平均难度</p>
+            </div>
+            <div className="glass-card rounded-2xl p-5 text-center">
+              <Sparkles size={24} className="mx-auto text-purple-500 mb-2" />
+              <p className="text-2xl font-bold text-slate-800">{questionStats.byDimension?.length || 0}</p>
+              <p className="text-xs text-slate-500">能力维度</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* By Course */}
+            <div className="glass-card rounded-2xl p-5">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">课程分布</h3>
+              <div className="space-y-2">
+                {Object.entries(questionStats.byCourse || {}).map(([course, count]: [string, any]) => (
+                  <div key={course} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">
+                      {course === 'math' ? '数理逻辑' : course === 'scratch' ? 'Scratch' : course === 'python' ? 'Python' : course === 'cpp' ? 'C++' : 'AIGC'}
+                    </span>
+                    <span className="font-bold text-slate-800">{count}</span>
+                  </div>
+                ))}
+                {Object.keys(questionStats.byCourse || {}).length === 0 && (
+                  <p className="text-sm text-slate-400 text-center py-2">暂无数据</p>
+                )}
+              </div>
+            </div>
+
+            {/* By Dimension */}
+            <div className="glass-card rounded-2xl p-5">
+              <h3 className="text-sm font-bold text-slate-700 mb-3">维度分布</h3>
+              <div className="space-y-2">
+                {(questionStats.byDimension || []).map((item: any) => (
+                  <div key={item.dimension_code} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{item.dimension_code}</span>
+                    <span className="font-bold text-slate-800">{item.count}</span>
+                  </div>
+                ))}
+                {(questionStats.byDimension || []).length === 0 && (
+                  <p className="text-sm text-slate-400 text-center py-2">暂无数据</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="glass-card rounded-3xl p-4">
         <div className="flex flex-wrap gap-3">

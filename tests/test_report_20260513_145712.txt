@@ -1,0 +1,45 @@
+FULL SYSTEM API TEST REPORT
+============================================================
+Date: 2026-05-13 14:57:12
+
+[PASS] Health Check
+[PASS] Admin Login
+[PASS] Teacher Login
+[FAIL] Student Login
+       Expected: 200, Got: 401
+[PASS] Invalid Login
+[PASS] Get Current User (Admin)
+[PASS] Dashboard Stats
+[PASS] Dashboard Trends (SQL Fix Verification)
+[PASS] List Users
+[FAIL] Get User Detail
+       Expected: 200, Got: 404
+[PASS] List Courses
+[PASS] List Exams
+[PASS] Get Exam Detail
+[PASS] List Exam Records by Exam
+[PASS] Teacher View Exam Records
+[FAIL] AI Recommendation (with fallback)
+       Expected: 200, Got: 404
+[PASS] List All Students
+[PASS] Teacher Dashboard
+[PASS] Teacher List Students
+[FAIL] List Questions
+       Expected: 200, Got: 200 (check_fn failed)
+[PASS] Question Stats
+[PASS] List Classes
+[PASS] List Notices
+[PASS] Knowledge Dimensions
+[PASS] Knowledge Courses
+[PASS] Get Config
+[PASS] List FAQ (Public)
+[PASS] FAQ Categories (Public)
+[PASS] List Certificates
+[FAIL] List AI Logs
+       Expected: 200, Got: 200 (check_fn failed)
+[PASS] AI Logs Stats
+[PASS] No Auth Header
+[PASS] Invalid Token
+[PASS] Non-existent Exam
+
+Summary: 29/34 passed (85.3%)

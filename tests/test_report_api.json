@@ -1,0 +1,132 @@
+{
+  "test_date": "2026-05-13 14:41:30",
+  "tests": [
+    {
+      "name": "Health",
+      "status": "通过",
+      "details": "状态码: 200",
+      "timestamp": "14:41:30"
+    },
+    {
+      "name": "Dashboard trends",
+      "status": "失败",
+      "details": "状态码: 401, 有data: False",
+      "timestamp": "14:41:30"
+    },
+    {
+      "name": "学生登录",
+      "status": "失败",
+      "details": "状态码: 0, 有token: False",
+      "timestamp": "14:41:30"
+    },
+    {
+      "name": "教师登录",
+      "status": "失败",
+      "details": "状态码: 0, 有token: False",
+      "timestamp": "14:41:34"
+    },
+    {
+      "name": "管理员登录",
+      "status": "失败",
+      "details": "状态码: 0, 有token: False",
+      "timestamp": "14:41:38"
+    },
+    {
+      "name": "学生列表",
+      "status": "失败",
+      "details": "状态码: 0, 学生数: 0",
+      "timestamp": "14:41:42"
+    },
+    {
+      "name": "课程列表",
+      "status": "失败",
+      "details": "状态码: 0, 课程数: 0",
+      "timestamp": "14:41:46"
+    },
+    {
+      "name": "测评列表",
+      "status": "失败",
+      "details": "状态码: 0, 试卷数: 0",
+      "timestamp": "14:41:50"
+    },
+    {
+      "name": "班级列表",
+      "status": "失败",
+      "details": "状态码: 0, 班级数: 0",
+      "timestamp": "14:41:55"
+    },
+    {
+      "name": "题目列表",
+      "status": "失败",
+      "details": "状态码: 0, 题目数: 0",
+      "timestamp": "14:41:59"
+    },
+    {
+      "name": "用户列表",
+      "status": "失败",
+      "details": "状态码: 0, 用户数: 0",
+      "timestamp": "14:42:03"
+    },
+    {
+      "name": "配置获取",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:07"
+    },
+    {
+      "name": "通知列表",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:11"
+    },
+    {
+      "name": "FAQ列表",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:15"
+    },
+    {
+      "name": "知识库列表",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:19"
+    },
+    {
+      "name": "证书列表",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:23"
+    },
+    {
+      "name": "AI日志列表",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:27"
+    },
+    {
+      "name": "测评统计",
+      "status": "失败",
+      "details": "状态码: 0",
+      "timestamp": "14:42:32"
+    },
+    {
+      "name": "学生我的信息",
+      "status": "跳过",
+      "details": "无学生token",
+      "timestamp": "14:42:32"
+    },
+    {
+      "name": "学生我的报告",
+      "status": "跳过",
+      "details": "无学生token",
+      "timestamp": "14:42:32"
+    }
+  ],
+  "summary": {
+    "total": 20,
+    "passed": 1,
+    "failed": 17,
+    "skipped": 2,
+    "pass_rate": "5.0%"
+  }
+}

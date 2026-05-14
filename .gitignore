@@ -34,8 +34,26 @@ data.sqlite
 *.sqlite
 *.db
 
-# Trae documents
-.trae/documents/
+# Trae workspace
+.trae/
+
+# Database & data files
+data/
+data.sqlite.test-backup
+
+# Test & temporary files
+test-*.py
+verify-*.py
+test-*.md
+test-*.json
+FINAL-TEST-REPORT.md
+check-dup.mjs
+cleanup-exams.mjs
+dedup-questions.mjs
+verify-dedup.mjs
+
+# Screenshots & test artifacts
+tests/screenshots/
 
 # Build output
 dist

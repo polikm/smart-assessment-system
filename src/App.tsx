@@ -7,7 +7,10 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import StudentHome from './pages/student/StudentHome';
 import StudentInfo from './pages/student/StudentInfo';
+import StudentProfile from './pages/student/StudentProfile';
+import StudentBaseInfo from './pages/student/StudentBaseInfo';
 import StudentExam from './pages/student/StudentExam';
+import StudentExamTaking from './pages/student/StudentExamTaking';
 import StudentReport from './pages/student/StudentReport';
 import StudentNotices from './pages/student/StudentNotices';
 import ExamLoading from './pages/student/ExamLoading';
@@ -17,6 +20,7 @@ import TeacherClass from './pages/teacher/TeacherClass';
 import TeacherReport from './pages/teacher/TeacherReport';
 import TeacherNotice from './pages/teacher/TeacherNotice';
 import TeacherStudents from './pages/teacher/TeacherStudents';
+import TeacherExam from './pages/teacher/TeacherExam';
 import AdminHome from './pages/admin/AdminHome';
 import AdminUsers from './pages/admin/AdminUsers';
 import AdminQuestions from './pages/admin/AdminQuestions';
@@ -26,6 +30,14 @@ import AdminStudents from './pages/admin/AdminStudents';
 import AdminCourses from './pages/admin/AdminCourses';
 import AdminAIConfig from './pages/admin/AdminAIConfig';
 import AdminExams from './pages/admin/AdminExams';
+import AdminExamConfig from './pages/admin/AdminExamConfig';
+import AdminExamRecords from './pages/admin/AdminExamRecords';
+import AdminClasses from './pages/admin/AdminClasses';
+import AdminNotices from './pages/admin/AdminNotices';
+import AdminClassDetail from './pages/admin/AdminClassDetail';
+import AdminCertificates from './pages/admin/AdminCertificates';
+// import AdminKnowledgeBase from './pages/admin/AdminKnowledgeBase'; // 已合并到智能体管理
+import StudentGrowth from './pages/student/StudentGrowth';
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles: string[] }) {
   const { user, isAuthenticated, isLoading, initAuth } = useAuthStore();
@@ -82,6 +94,22 @@ function App() {
           }
         />
         <Route
+          path="/student/profile"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentProfile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/base-info"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentBaseInfo />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/student/exam-loading"
           element={
             <ProtectedRoute allowedRoles={['student']}>
@@ -94,6 +122,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['student']}>
               <StudentExam />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/exam-taking"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentExamTaking />
             </ProtectedRoute>
           }
         />
@@ -118,6 +154,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['student']}>
               <StudentNotices />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/student/growth"
+          element={
+            <ProtectedRoute allowedRoles={['student']}>
+              <StudentGrowth />
             </ProtectedRoute>
           }
         />
@@ -159,6 +203,14 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['teacher']}>
               <TeacherStudents />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/teacher/exam"
+          element={
+            <ProtectedRoute allowedRoles={['teacher']}>
+              <TeacherExam />
             </ProtectedRoute>
           }
         />
@@ -232,6 +284,48 @@ function App() {
           element={
             <ProtectedRoute allowedRoles={['admin']}>
               <AdminExams />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/admin/exam-config" element={<Navigate to="/admin/exams" replace />} />
+        <Route path="/admin/exam-records" element={<Navigate to="/admin/exams" replace />} />
+        <Route
+          path="/admin/classes"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminClasses />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/classes/:id"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminClassDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/notices"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminNotices />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/certificates"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <AdminCertificates />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/knowledge-base"
+          element={
+            <ProtectedRoute allowedRoles={['admin']}>
+              <Navigate to="/admin/ai-config" replace />
             </ProtectedRoute>
           }
         />

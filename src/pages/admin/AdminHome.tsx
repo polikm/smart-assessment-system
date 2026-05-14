@@ -6,15 +6,17 @@ import {
   LinearScale,
   BarElement,
   PointElement,
+  LineElement,
   ArcElement,
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Bar, Doughnut } from 'react-chartjs-2';
-import { Users, BookOpen, ClipboardList, Award, TrendingUp, Eye } from 'lucide-react';
+import { Bar, Doughnut, Line } from 'react-chartjs-2';
+import { Users, BookOpen, ClipboardList, Award, TrendingUp, Eye, Calendar } from 'lucide-react';
 import ReportDetail from '../../components/ReportDetail';
+import { formatDate } from '../../utils/dateFormat';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, ArcElement, Tooltip, Legend);
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, ArcElement, Tooltip, Legend);
 
 const levelColors: Record<string, string> = {
   A: '#22c55e',
@@ -25,6 +27,7 @@ const levelColors: Record<string, string> = {
 
 export default function AdminHome() {
   const [data, setData] = useState<any>(null);
+  const [trends, setTrends] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedRecord, setSelectedRecord] = useState<any>(null);
   const [detailRecord, setDetailRecord] = useState<any>(null);
@@ -36,8 +39,12 @@ export default function AdminHome() {
 
   const loadData = async () => {
     try {
-      const dashboardData = await dashboardApi.get();
+      const [dashboardData, trendsData] = await Promise.all([
+        dashboardApi.get(),
+        dashboardApi.trends(),
+      ]);
       setData(dashboardData);
+      setTrends(trendsData);
     } catch (error) {
       console.error(error);
     } finally {
@@ -158,6 +165,65 @@ export default function AdminHome() {
         </div>
       </div>
 
+      {/* 趋势图表 */}
+      {trends && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="glass-card rounded-3xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Calendar size={18} className="text-blue-500" />
+              <h3 className="text-lg font-bold text-slate-800">30天测评趋势</h3>
+            </div>
+            <Line
+              data={{
+                labels: (trends.dailyRecords || []).map((r: any) => r.date?.slice(5) || ''),
+                datasets: [
+                  {
+                    label: '测评次数',
+                    data: (trends.dailyRecords || []).map((r: any) => r.count),
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                  },
+                ],
+              }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: { y: { beginAtZero: true } },
+              }}
+            />
+          </div>
+
+          <div className="glass-card rounded-3xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp size={18} className="text-emerald-500" />
+              <h3 className="text-lg font-bold text-slate-800">课程类型分布</h3>
+            </div>
+            <Bar
+              data={{
+                labels: (trends.courseDistribution || []).map((r: any) =>
+                  r.course_type === 'math' ? '数理逻辑' : r.course_type === 'scratch' ? 'Scratch' : r.course_type === 'python' ? 'Python' : r.course_type === 'cpp' ? 'C++' : 'AIGC'
+                ),
+                datasets: [
+                  {
+                    label: '测评次数',
+                    data: (trends.courseDistribution || []).map((r: any) => r.record_count),
+                    backgroundColor: ['#3b82f6', '#f59e0b', '#22c55e', '#ef4444', '#a855f7'],
+                    borderRadius: 8,
+                  },
+                ],
+              }}
+              options={{
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: { y: { beginAtZero: true } },
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="glass-card rounded-3xl p-6">
         <h3 className="text-lg font-bold text-slate-800 mb-4">最近测评记录</h3>
         <div className="overflow-x-auto">
@@ -190,7 +256,7 @@ export default function AdminHome() {
                     </span>
                   </td>
                   <td className="py-3 text-sm text-slate-500">
-                    {new Date(record.created_at).toLocaleDateString('zh-CN')}
+                    {formatDate(record.created_at)}
                   </td>
                   <td className="py-3">
                     <button

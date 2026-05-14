@@ -4,11 +4,27 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AuthRequest } from '../middleware/auth.js';
 import { aiCall, isFeatureEnabled } from '../utils/aiClient.js';
 
+// AI调用重试机制：最多重试maxRetries次，立即连续重试
+async function aiCallWithRetry(options: any, maxRetries = 3): Promise<any> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const result = await aiCall(options);
+      return result;
+    } catch (error: any) {
+      console.log(`[AI] Retry ${i + 1}/${maxRetries} failed:`, error.message);
+      if (i === maxRetries - 1) throw error;
+    }
+  }
+}
+import { updateStudentAbilityProfile, saveGrowthHistory } from '../services/studentProfileService.js';
+import { inferDimensionFromKnowledgePoint, getDimensionDistribution, getCategoryInfo } from '../services/dimensionService.js';
+
 const router = Router();
 
 function getGradeRange(grade: number): string {
-  if (grade <= 3) return '1-3';
-  if (grade <= 6) return '4-6';
+  if (grade <= 2) return '1-2';
+  if (grade <= 4) return '3-4';
+  if (grade <= 6) return '5-6';
   return '7-9';
 }
 
@@ -169,13 +185,14 @@ async function getDefaultRecommendations(level: string, courseType: string, stud
     }
   }
 
-  // 查询课程库关联真实课程，覆盖硬编码推荐
+  // 查询课程库关联真实课程，覆盖硬编码推荐（三层降级查询）
   if (db) {
     try {
       const studentGrade = student?.grade || 3;
       const gradeRange = getGradeRange(studentGrade);
       let matchedCourse = null;
 
+      // 第一层：精确匹配 course_type + grade_range
       if (courseType === 'math') {
         matchedCourse = await db.get(
           `SELECT * FROM courses
@@ -191,12 +208,6 @@ async function getDefaultRecommendations(level: string, courseType: string, stud
            LIMIT 1`,
           [gradeRange, level, level]
         );
-        // math测评若未匹配到课程，强制使用统一fallback课程
-        if (!matchedCourse) {
-          matchedCourse = await db.get(
-            `SELECT * FROM courses WHERE status = 'active' AND (name LIKE '%AI素养启蒙%' OR name LIKE '%图形化编程%') LIMIT 1`
-          );
-        }
       } else {
         matchedCourse = await db.get(
           `SELECT * FROM courses
@@ -213,10 +224,34 @@ async function getDefaultRecommendations(level: string, courseType: string, stud
         );
       }
 
+      // 第二层：若未匹配到，只按 course_type 匹配（不限年级）
+      if (!matchedCourse && courseType !== 'math') {
+        matchedCourse = await db.get(
+          `SELECT * FROM courses
+           WHERE course_type = ? AND status = 'active'
+           ORDER BY created_at DESC
+           LIMIT 1`,
+          [courseType]
+        );
+      }
+
+      // 第三层：若仍未匹配到，查询任意活跃课程
+      if (!matchedCourse) {
+        matchedCourse = await db.get(
+          `SELECT * FROM courses WHERE status = 'active' ORDER BY created_at DESC LIMIT 1`
+        );
+      }
+
       if (matchedCourse) {
         recommendations.classRecommendation.courseId = matchedCourse.id;
         recommendations.classRecommendation.className = matchedCourse.name;
         recommendations.classRecommendation.reason = `根据您的测评结果，推荐您报读「${matchedCourse.name}」。${matchedCourse.description || ''}`;
+      } else {
+        // 兜底：课程库为空时的提示
+        recommendations.classRecommendation.className = '请咨询课程顾问';
+        recommendations.classRecommendation.reason = '根据您的测评结果，我们建议您与课程顾问沟通，获取最适合您的课程推荐。';
+        recommendations.classRecommendation.path = ['课程咨询', '能力评估', '个性化推荐', '开始学习'];
+        recommendations.classRecommendation.courseId = null;
       }
     } catch (e) {
       console.error('Failed to match course from library:', e);
@@ -265,6 +300,87 @@ async function findMatchingCourse(db: any, courseType: string, gradeRange: strin
   }
 }
 
+async function generateAIAnalysis(
+  level: string,
+  courseType: string,
+  student: any,
+  weakPoints: string[],
+  knowledgePointStats: Record<string, { correct: number; total: number }>,
+  score: number,
+  correctCount: number,
+  totalQuestions: number
+): Promise<any> {
+  const courseTypeName = courseType === 'aigc' ? 'AIGC素养' : courseType === 'python' ? 'Python编程' : courseType === 'cpp' ? 'C++算法' : courseType === 'scratch' ? 'Scratch图形化编程' : courseType === 'math' ? '数理逻辑' : '编程';
+  const knowledgeStatsText = Object.entries(knowledgePointStats)
+    .map(([kp, s]) => `${kp}: ${s.correct}/${s.total}正确`)
+    .join('；');
+
+  try {
+    const enabled = await isFeatureEnabled('report_analysis');
+    if (!enabled) {
+      console.log('[AI] report_analysis feature is disabled');
+      return null;
+    }
+
+    console.log('[AI] Starting report_analysis with retry...');
+    const data = await aiCallWithRetry({
+      feature: 'report_analysis',
+      messages: [
+        {
+          role: 'system',
+          content: '你是资深教育评估专家，根据学生测评结果提供六维度分析报告。请用中文输出，以JSON格式返回。'
+        },
+        {
+          role: 'user',
+          content: `请为以下学生生成测评分析报告：
+
+【学生信息】
+- 姓名：${student?.name || '未知'}
+- 年级：${student?.grade || '未知'}年级
+- 数学成绩：${student?.math_score || '未知'}
+- AI基础：${student?.ai_base || '未知'}
+- 编程基础：${student?.programming_base || '未知'}
+- 逻辑思维能力：${student?.logical_ability || '未知'}
+
+【测评结果】
+- 课程类型：${courseTypeName}
+- 总分：${score}分
+- 等级：${level}（A优秀/B良好/C合格/D待提高）
+- 正确题数：${correctCount}/${totalQuestions}
+- 知识点掌握情况：${knowledgeStatsText}
+- 薄弱环节：${weakPoints.join('、') || '无'}
+
+请按以下JSON格式返回六维度分析（每个字段100-200字）：
+{
+  "knowledgeAnalysis": "知识掌握度分析...",
+  "logicAbility": "逻辑思维能力评估...",
+  "potential": "学习潜力评估...",
+  "weakPoints": "薄弱环节分析...",
+  "strengths": "优势领域识别...",
+  "development": "综合发展建议..."
+}`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 2000,
+    }, 3);
+
+    const content = data.choices?.[0]?.message?.content || '';
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      const aiAnalysis = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+      console.log('[AI] report_analysis succeeded');
+      return aiAnalysis;
+    } catch (e) {
+      console.log('[AI] Failed to parse report_analysis response');
+      return null;
+    }
+  } catch (error: any) {
+    console.error('[AI] report_analysis failed after 3 retries:', error.message);
+    return null;
+  }
+}
+
 async function generateRecommendations(level: string, courseType: string, student: any, weakPoints: string[], knowledgePointStats: Record<string, { correct: number; total: number }>): Promise<any> {
   let db;
   try {
@@ -273,22 +389,20 @@ async function generateRecommendations(level: string, courseType: string, studen
     console.error('Failed to get DB connection:', e);
   }
 
-  const defaultRecs = await getDefaultRecommendations(level, courseType, student, weakPoints, db);
-
   const courseTypeName = courseType === 'aigc' ? 'AIGC素养' : courseType === 'python' ? 'Python编程' : courseType === 'cpp' ? 'C++算法' : courseType === 'scratch' ? 'Scratch图形化编程' : courseType === 'math' ? '数理逻辑' : '编程';
   const knowledgeStatsText = Object.entries(knowledgePointStats)
     .map(([kp, s]) => `${kp}: ${s.correct}/${s.total}正确`)
     .join('；');
 
-  // 查询课程库中所有相关课程
+  // 查询课程库中所有相关课程（三层降级查询）
   let relatedCourses: any[] = [];
   if (db) {
     try {
       const studentGrade = student?.grade || 3;
       const gradeRange = getGradeRange(studentGrade);
 
+      // 第一层：精确匹配 course_type + grade_range
       if (courseType === 'math') {
-        // math测评：查询所有类型的启蒙/入门/基础课程
         relatedCourses = await db.all(
           `SELECT id, name, description, grade_range, course_type, course_objectives, matching_events
            FROM courses WHERE grade_range = ? AND status = 'active'
@@ -303,11 +417,27 @@ async function generateRecommendations(level: string, courseType: string, studen
           [gradeRange]
         );
       } else {
-        // 其他类型：查询同类型课程
         relatedCourses = await db.all(
           `SELECT id, name, description, grade_range, course_type, course_objectives, matching_events
            FROM courses WHERE course_type = ? AND grade_range = ? AND status = 'active'`,
           [courseType, gradeRange]
+        );
+      }
+
+      // 第二层：若未匹配到，只按 course_type 匹配（不限年级）
+      if (relatedCourses.length === 0 && courseType !== 'math') {
+        relatedCourses = await db.all(
+          `SELECT id, name, description, grade_range, course_type, course_objectives, matching_events
+           FROM courses WHERE course_type = ? AND status = 'active' ORDER BY created_at DESC`,
+          [courseType]
+        );
+      }
+
+      // 第三层：若仍未匹配到，查询任意活跃课程
+      if (relatedCourses.length === 0) {
+        relatedCourses = await db.all(
+          `SELECT id, name, description, grade_range, course_type, course_objectives, matching_events
+           FROM courses WHERE status = 'active' ORDER BY created_at DESC LIMIT 10`
         );
       }
     } catch (e) {
@@ -321,31 +451,22 @@ async function generateRecommendations(level: string, courseType: string, studen
       ).join('\n')
     : '暂无相关课程';
 
-  const courseContext = defaultRecs.classRecommendation?.courseId
-    ? `【机构课程库信息】\n- 推荐课程：${defaultRecs.classRecommendation.className}\n`
-    : '';
-
-  const mathSpecialNote = courseType === 'math'
-    ? `\n【特殊说明】\n该学生完成的是数理逻辑测评。数理逻辑能力是学习编程的基础。\n- 若成绩优秀(A/B)：推荐编程入门课程（如Python基础、Scratch进阶）\n- 若成绩偏差(C/D)：推荐图形化编程启蒙或AI素养启蒙课程，培养逻辑思维能力\n`
-    : '';
-
+  // 先尝试AI推荐（优先策略，带3次重试）
+  let aiResult: any = null;
   try {
-    const enabled = await isFeatureEnabled('report_analysis');
-    if (!enabled) {
-      console.log('[AI] report_analysis feature is disabled');
-      return defaultRecs;
-    }
-
-    const data = await aiCall({
-      feature: 'report_analysis',
-      messages: [
-        {
-          role: 'system',
-          content: '你是一位资深的教育评估专家，擅长根据学生的测评结果和个人信息提供专业的分析报告。请以JSON格式返回分析结果。'
-        },
-        {
-          role: 'user',
-          content: `请为以下学生生成测评分析报告：
+    const enabled = await isFeatureEnabled('course_recommend');
+    if (enabled) {
+      console.log('[AI] Starting course_recommend with retry...');
+      const data = await aiCallWithRetry({
+        feature: 'course_recommend',
+        messages: [
+          {
+            role: 'system',
+            content: '你是资深教育顾问，根据学生测评结果从机构课程库中推荐最适合的课程。必须严格从提供的课程列表中选择，禁止推荐不存在的课程。以JSON格式返回。'
+          },
+          {
+            role: 'user',
+            content: `请为以下学生推荐课程：
 
 【学生信息】
 - 姓名：${student?.name || '未知'}
@@ -364,8 +485,6 @@ async function generateRecommendations(level: string, courseType: string, studen
 - 知识点掌握情况：${knowledgeStatsText}
 - 薄弱环节：${weakPoints.join('、') || '无'}
 
-${courseContext}${mathSpecialNote}
-
 【机构课程库】
 以下是我机构开设的相关课程，请严格从以下课程中选择推荐：
 ${allCoursesContext}
@@ -373,19 +492,11 @@ ${allCoursesContext}
 重要约束：
 1. classRecommendation.className 必须从上述课程列表中选择课程名称
 2. classRecommendation.path 中的每个阶段必须是上述课程中的某个名称，按学习顺序排列
-3. 如果课程库信息不足以给出完整建议，可在 learningPlan.resources 中补充推荐权威书籍或在线资源
+3. 如果课程库为空，classRecommendation.className 请填写"请咨询课程顾问"
 4. 禁止推荐课程库中不存在的课程名称
 
-请按以下6个固定维度生成分析，以JSON格式返回：
+请按以下JSON格式返回：
 {
-  "aiAnalysis": {
-    "knowledgeAnalysis": "知识掌握度分析...",
-    "logicAbility": "逻辑思维能力评估...",
-    "potential": "学习潜力评估...",
-    "weakPoints": "薄弱环节分析...",
-    "strengths": "优势领域识别...",
-    "development": "综合发展建议..."
-  },
   "learningPlan": {
     "shortTerm": "短期目标（1个月）具体建议...",
     "mediumTerm": "中期目标（3个月）具体建议...",
@@ -398,51 +509,80 @@ ${allCoursesContext}
     "path": ["阶段1（课程库中的课程名称）", "阶段2", "阶段3", "阶段4"]
   }
 }`
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 2000,
-    });
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+      }, 3);
 
-    const content = data.choices?.[0]?.message?.content || '';
-
-    let aiResult;
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      aiResult = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
-    } catch (e) {
-      aiResult = null;
+      const content = data.choices?.[0]?.message?.content || '';
+      try {
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        aiResult = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+        console.log('[AI] course_recommend succeeded');
+      } catch (e) {
+        console.log('[AI] Failed to parse AI response');
+      }
+    } else {
+      console.log('[AI] course_recommend feature is disabled');
     }
+  } catch (error: any) {
+    console.error('[AI] course_recommend failed after 3 retries:', error.message);
+  }
 
-    if (aiResult) {
-      const result: any = {
-        ...defaultRecs,
-        aiAnalysis: aiResult.aiAnalysis || defaultRecs.aiAnalysis,
-        learningPlan: aiResult.learningPlan || defaultRecs.learningPlan,
-        classRecommendation: {
-          ...defaultRecs.classRecommendation,
-          ...(aiResult.classRecommendation || {}),
-        },
-      };
+  // 获取内置推荐（作为回退和补充）
+  const defaultRecs = await getDefaultRecommendations(level, courseType, student, weakPoints, db);
 
-      const validCourseNames = new Set(relatedCourses.map((c: any) => c.name));
-      if (result.classRecommendation.className && validCourseNames.size > 0 && !validCourseNames.has(result.classRecommendation.className)) {
+  // 如果AI推荐成功，合并AI结果和内置推荐
+  if (aiResult) {
+    const validCourseNames = new Set(relatedCourses.map((c: any) => c.name));
+    const result: any = {
+      ...defaultRecs,
+      learningPlan: aiResult.learningPlan || defaultRecs.learningPlan,
+      classRecommendation: {
+        ...defaultRecs.classRecommendation,
+        ...(aiResult.classRecommendation || {}),
+      },
+    };
+
+    // 验证AI推荐的课程名称是否在课程库中
+    if (result.classRecommendation.className && validCourseNames.size > 0 && !validCourseNames.has(result.classRecommendation.className)) {
+      if (result.classRecommendation.className !== '请咨询课程顾问') {
         console.log(`[AI] className "${result.classRecommendation.className}" not in course library, using default`);
         result.classRecommendation.className = defaultRecs.classRecommendation.className;
         result.classRecommendation.reason = defaultRecs.classRecommendation.reason;
         result.classRecommendation.courseId = defaultRecs.classRecommendation.courseId;
       }
-
-      if (result.classRecommendation.path && Array.isArray(result.classRecommendation.path) && validCourseNames.size > 0) {
-        result.classRecommendation.path = result.classRecommendation.path.map((step: string) =>
-          validCourseNames.has(step) ? step : defaultRecs.classRecommendation.path[0] || step
-        );
-      }
-
-      return result;
     }
-  } catch (error) {
-    console.error('AI分析调用失败，使用默认推荐:', error);
+
+    // 验证path中的课程名称
+    if (result.classRecommendation.path && Array.isArray(result.classRecommendation.path) && validCourseNames.size > 0) {
+      result.classRecommendation.path = result.classRecommendation.path.map((step: string) =>
+        validCourseNames.has(step) ? step : (defaultRecs.classRecommendation.path?.[0] || step)
+      );
+    }
+
+    // 最终兜底：确保classRecommendation不为空
+    if (!result.classRecommendation || !result.classRecommendation.className) {
+      result.classRecommendation = {
+        className: '请咨询课程顾问',
+        reason: '根据您的测评结果，我们建议您与课程顾问沟通，获取个性化的课程推荐。',
+        path: ['课程咨询', '能力评估', '个性化推荐', '开始学习'],
+        courseId: null,
+      };
+    }
+
+    return result;
+  }
+
+  // AI失败或禁用时，使用内置推荐并确保有兜底
+  if (!defaultRecs.classRecommendation || !defaultRecs.classRecommendation.className) {
+    defaultRecs.classRecommendation = {
+      className: '请咨询课程顾问',
+      reason: '根据您的测评结果，我们建议您与课程顾问沟通，获取个性化的课程推荐。',
+      path: ['课程咨询', '能力评估', '个性化推荐', '开始学习'],
+      courseId: null,
+    };
   }
 
   return defaultRecs;
@@ -468,65 +608,125 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 
     const selectedIds = new Set<number>();
     let questions: any[] = [];
+    const insufficientDimensions: { category: string; required: number; actual: number }[] = [];
 
-    const knowledgePoints = await db.all(
-      `SELECT DISTINCT knowledge_point FROM questions 
-       WHERE course_type = ? AND grade_range = ? AND status = 'approved'`,
-      [course_type, gradeRange]
-    );
+    // 获取6大维度的题目数量分配
+    const dimensionDistribution = getDimensionDistribution(course_type, gradeRange, targetCount);
+    const categoryInfo = getCategoryInfo();
 
-    if (knowledgePoints.length > 0) {
-      const perKP = Math.ceil(targetCount / knowledgePoints.length);
+    // 按维度选取题目，确保覆盖6大维度
+    for (const [category, requiredCount] of Object.entries(dimensionDistribution)) {
+      const catCodes = categoryInfo[category]?.codes || [];
+      if (catCodes.length === 0) continue;
 
-      for (const kp of knowledgePoints) {
-        const excludeIds = Array.from(selectedIds);
-        let kpQuestions: any[] = [];
-        if (excludeIds.length === 0) {
-          kpQuestions = await db.all(
-            `SELECT * FROM questions WHERE course_type = ? AND grade_range = ? 
-             AND knowledge_point = ? AND status = 'approved'
-             ORDER BY difficulty ASC, RANDOM() LIMIT ?`,
-            [course_type, gradeRange, kp.knowledge_point, perKP]
-          );
-        } else {
-          const placeholders = excludeIds.map(() => '?').join(',');
-          kpQuestions = await db.all(
-            `SELECT * FROM questions WHERE course_type = ? AND grade_range = ? 
-             AND knowledge_point = ? AND status = 'approved'
-             AND id NOT IN (${placeholders})
-             ORDER BY difficulty ASC, RANDOM() LIMIT ?`,
-            [course_type, gradeRange, kp.knowledge_point, ...excludeIds, perKP]
-          );
+      const codePlaceholders = catCodes.map(() => '?').join(',');
+      let catQuestions: any[] = [];
+
+      // 1. 优先从同年级选取
+      const sameGrade = await db.all(
+        `SELECT * FROM questions WHERE course_type = ? AND grade_range = ?
+         AND status = 'approved' AND dimension_code IN (${codePlaceholders})
+         AND id NOT IN (${selectedIds.size > 0 ? Array.from(selectedIds).map(() => '?').join(',') : '0'})
+         ORDER BY RANDOM() LIMIT ?`,
+        [
+          course_type, gradeRange,
+          ...catCodes,
+          ...(selectedIds.size > 0 ? Array.from(selectedIds) : []),
+          requiredCount
+        ]
+      );
+      for (const q of sameGrade) {
+        if (!selectedIds.has(q.id)) {
+          catQuestions.push(q);
+          selectedIds.add(q.id);
         }
-        for (const q of kpQuestions) {
-          if (!selectedIds.has(q.id)) {
-            questions.push(q);
-            selectedIds.add(q.id);
+      }
+
+      // 2. 如果不足，从相邻年级补充
+      if (catQuestions.length < requiredCount) {
+        const needMore = requiredCount - catQuestions.length;
+        for (const adjRange of getAdjacentGradeRanges(gradeRange)) {
+          if (catQuestions.length >= requiredCount) break;
+          const adjQuestions = await db.all(
+            `SELECT * FROM questions WHERE course_type = ? AND grade_range = ?
+             AND status = 'approved' AND dimension_code IN (${codePlaceholders})
+             AND id NOT IN (${selectedIds.size > 0 ? Array.from(selectedIds).map(() => '?').join(',') : '0'})
+             ORDER BY RANDOM() LIMIT ?`,
+            [
+              course_type, adjRange,
+              ...catCodes,
+              ...(selectedIds.size > 0 ? Array.from(selectedIds) : []),
+              needMore
+            ]
+          );
+          for (const q of adjQuestions) {
+            if (!selectedIds.has(q.id)) {
+              catQuestions.push(q);
+              selectedIds.add(q.id);
+            }
           }
+        }
+      }
+
+      // 3. 如果仍不足，从所有年级补充
+      if (catQuestions.length < requiredCount) {
+        const needMore = requiredCount - catQuestions.length;
+        const allRanges = getAllGradeRanges().filter(r => r !== gradeRange && !getAdjacentGradeRanges(gradeRange).includes(r));
+        for (const range of allRanges) {
+          if (catQuestions.length >= requiredCount) break;
+          const moreQuestions = await db.all(
+            `SELECT * FROM questions WHERE course_type = ? AND grade_range = ?
+             AND status = 'approved' AND dimension_code IN (${codePlaceholders})
+             AND id NOT IN (${selectedIds.size > 0 ? Array.from(selectedIds).map(() => '?').join(',') : '0'})
+             ORDER BY RANDOM() LIMIT ?`,
+            [
+              course_type, range,
+              ...catCodes,
+              ...(selectedIds.size > 0 ? Array.from(selectedIds) : []),
+              needMore
+            ]
+          );
+          for (const q of moreQuestions) {
+            if (!selectedIds.has(q.id)) {
+              catQuestions.push(q);
+              selectedIds.add(q.id);
+            }
+          }
+        }
+      }
+
+      // 4. 如果该维度仍不足，记录不足信息，并从其他维度补充
+      if (catQuestions.length < requiredCount) {
+        insufficientDimensions.push({
+          category,
+          required: requiredCount,
+          actual: catQuestions.length,
+        });
+      }
+
+      questions.push(...catQuestions);
+    }
+
+    // 5. 如果总题目不足目标数量，从所有approved题目中补充（不限维度）
+    if (questions.length < targetCount) {
+      const needMore = targetCount - questions.length;
+      const fillQuestions = await db.all(
+        `SELECT * FROM questions WHERE course_type = ? AND status = 'approved'
+         AND id NOT IN (${selectedIds.size > 0 ? Array.from(selectedIds).map(() => '?').join(',') : '0'})
+         ORDER BY RANDOM() LIMIT ?`,
+        [
+          course_type,
+          ...(selectedIds.size > 0 ? Array.from(selectedIds) : []),
+          needMore
+        ]
+      );
+      for (const q of fillQuestions) {
+        if (!selectedIds.has(q.id)) {
+          questions.push(q);
+          selectedIds.add(q.id);
         }
       }
     }
-
-    const fillMore = async (ranges: string[]) => {
-      let needMore = targetCount - questions.length;
-      if (needMore <= 0) return;
-      for (const range of ranges) {
-        if (needMore <= 0) break;
-        const excludeIds = Array.from(selectedIds);
-        const more = await selectQuestions(db, course_type, range, needMore, excludeIds);
-        for (const q of more) {
-          if (!selectedIds.has(q.id)) {
-            questions.push(q);
-            selectedIds.add(q.id);
-          }
-        }
-        needMore = targetCount - questions.length;
-      }
-    };
-
-    await fillMore([gradeRange]);
-    await fillMore(getAdjacentGradeRanges(gradeRange));
-    await fillMore(getAllGradeRanges().filter(r => r !== gradeRange && !getAdjacentGradeRanges(gradeRange).includes(r)));
 
     // Strict deduplication: ensure no duplicate questions by ID
     const idSet = new Set<number>();
@@ -568,8 +768,73 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       );
     }
 
+    // 发送维度不足通知
+    if (insufficientDimensions.length > 0) {
+      try {
+        const categoryNames: Record<string, string> = {
+          cognitive: '认知能力',
+          skill: '技能能力',
+          quality: '综合素养',
+          innovation: '创新思维',
+          collaboration: '协作沟通',
+          ethics: 'AI伦理',
+        };
+        const courseTypeNameMap: Record<string, string> = {
+          aigc: 'AIGC素养',
+          python: 'Python编程',
+          cpp: 'C++算法',
+          scratch: 'Scratch图形化编程',
+          math: '数理逻辑',
+        };
+        const dimDetails = insufficientDimensions
+          .map(d => `${categoryNames[d.category] || d.category}(缺${d.required - d.actual}题)`)
+          .join('、');
+        const noticeContent = `【系统通知】组卷时维度题目不足：课程类型${courseTypeNameMap[course_type] || course_type}、年级${gradeRange}，以下维度题目不足：${dimDetails}。请及时补充题库。`;
+
+        // 查询所有admin和teacher角色的用户
+        const adminUsers = await db.all(
+          `SELECT u.id, u.role FROM users u WHERE u.role IN ('admin', 'teacher')`
+        );
+
+        // 查找或创建系统通知模板
+        let sysTemplate = await db.get(
+          `SELECT id FROM notice_templates WHERE name = '系统通知' LIMIT 1`
+        );
+        if (!sysTemplate) {
+          const templateResult = await db.run(
+            `INSERT INTO notice_templates (name, type, content) VALUES (?, ?, ?)`,
+            ['系统通知', 'system', '{{content}}']
+          );
+          sysTemplate = { id: templateResult.lastID };
+        }
+
+        // 为每个admin/teacher发送通知
+        for (const user of adminUsers) {
+          await db.run(
+            `INSERT INTO notices (template_id, student_id, content, notice_data, status) VALUES (?, ?, ?, ?, 'sent')`,
+            [
+              sysTemplate.id,
+              user.id,
+              noticeContent,
+              JSON.stringify({ type: 'system', category: 'dimension_shortage', courseType: course_type, gradeRange })
+            ]
+          );
+        }
+
+        console.log(`[Exam] Dimension shortage notification sent to ${adminUsers.length} admins/teachers`);
+      } catch (noticeErr: any) {
+        console.error('[Exam] Failed to send dimension shortage notification:', noticeErr.message);
+      }
+    }
+
     console.log(`[Exam] Created exam ${examResult.lastID} with ${actualCount} questions`);
-    res.status(201).json({ id: examResult.lastID, message: '试卷创建成功', questionCount: actualCount });
+    res.status(201).json({
+      id: examResult.lastID,
+      message: '试卷创建成功',
+      questionCount: actualCount,
+      dimensionCoverage: insufficientDimensions.length === 0,
+      insufficientDimensions: insufficientDimensions.length > 0 ? insufficientDimensions : undefined,
+    });
   } catch (error: any) {
     console.error('Create exam error:', error);
     res.status(500).json({ message: '创建试卷失败: ' + (error.message || '未知错误') });
@@ -607,6 +872,11 @@ router.post('/:id/submit', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const db = await getDb();
     const { answers, duration, tab_switch_count, question_times } = req.body;
+
+    // 课程类型名称映射（用于AI分析文本生成）
+    const getCourseTypeName = (ct: string) => {
+      return ct === 'aigc' ? 'AIGC素养' : ct === 'python' ? 'Python编程' : ct === 'cpp' ? 'C++算法' : ct === 'scratch' ? 'Scratch图形化编程' : ct === 'math' ? '数理逻辑' : '编程';
+    };
 
     console.log(`[Submit] Looking up student for user_id=${req.user!.id}`);
     const student = await db.get('SELECT * FROM students_info WHERE user_id = ?', [req.user!.id]);
@@ -678,7 +948,9 @@ router.post('/:id/submit', authMiddleware, async (req: AuthRequest, res) => {
       }
     }
 
-    console.log(`[Submit] Calculated score=${totalScore}`);
+    const correctCount = answerResults.filter((r: any) => r.isCorrect).length;
+    const totalQuestions = examQuestions.length;
+    console.log(`[Submit] Calculated score=${totalScore}, correct=${correctCount}/${totalQuestions}`);
     const level = await calculateLevel(totalScore, db);
     console.log(`[Submit] Calculated level=${level}`);
 
@@ -700,48 +972,123 @@ router.post('/:id/submit', authMiddleware, async (req: AuthRequest, res) => {
       if (tooSlow > 0) cheatFlags.push(`${tooSlow}道题答题过慢(>3倍平均)`);
     }
 
-    // 生成默认推荐（同步，不调用AI）
-    const defaultRecs = await getDefaultRecommendations(level, exam.course_type, student, weakPoints, db);
+    // 同步执行AI分析（确保每份报告都包含AI分析）
+    let mergedRecs: any = null;
+    try {
+      console.log(`[AI] Starting synchronous AI analysis for exam submission`);
 
-    // 先插入记录，返回recordId
-    console.log(`[Submit] Inserting exam record...`);
+      // 1. 调用课程推荐AI
+      const aiRecs = await generateRecommendations(level, exam.course_type, student, weakPoints, knowledgePointStats);
+
+      // 2. 调用报告分析AI（六维度分析）
+      const aiAnalysis = await generateAIAnalysis(
+        level, exam.course_type, student, weakPoints, knowledgePointStats,
+        totalScore, correctCount, totalQuestions
+      );
+
+      // 合并AI分析结果到recommendations
+      // 确保 aiAnalysis 始终是一个包含6个维度的对象，而不是 null 或 {}
+      const courseTypeName = getCourseTypeName(exam.course_type);
+      const finalAiAnalysis = aiAnalysis && Object.keys(aiAnalysis).length > 0 ? aiAnalysis : {
+        knowledgeAnalysis: `该学生在${courseTypeName}测评中获得${totalScore}分，等级为${level}。从答题情况来看，学生对基础概念有一定了解，但在综合应用和深度理解方面还有提升空间。`,
+        logicAbility: `学生的逻辑思维能力处于${level}等级水平，能够完成基础逻辑推理，但在复杂问题分析和多步骤推理方面需要加强训练。`,
+        potential: `学生具备学习${courseTypeName}的潜力，通过系统学习和持续练习，有望在3-6个月内显著提升能力水平。`,
+        weakPoints: weakPoints.length > 0 ? `薄弱环节主要集中在：${weakPoints.join('、')}。建议针对这些知识点进行专项练习。` : '暂未发现明显薄弱环节，建议保持现有学习节奏，同时适当拓展知识面。',
+        strengths: `学生在基础概念理解方面表现较好，能够掌握核心知识点，这是后续深入学习的良好基础。`,
+        development: `建议制定阶段性学习计划，从巩固基础开始，逐步提升综合应用能力。同时加强实践练习，通过项目驱动的方式提升解决实际问题的能力。`,
+      };
+
+      mergedRecs = {
+        ...aiRecs,
+        aiAnalysis: finalAiAnalysis,
+      };
+
+      console.log(`[AI] Synchronous AI analysis completed, aiAnalysis keys:`, Object.keys(finalAiAnalysis));
+    } catch (aiError: any) {
+      console.error(`[AI] Synchronous AI analysis failed:`, aiError.message);
+      // AI失败时使用默认推荐，但仍包含aiAnalysis
+      mergedRecs = await getDefaultRecommendations(level, exam.course_type, student, weakPoints, db);
+      // 确保有aiAnalysis字段
+      if (!mergedRecs.aiAnalysis) {
+        const fallbackCourseTypeName = getCourseTypeName(exam.course_type);
+        mergedRecs.aiAnalysis = {
+          knowledgeAnalysis: `该学生在${fallbackCourseTypeName}测评中获得${totalScore}分，等级为${level}。`,
+          logicAbility: `学生的逻辑思维能力处于${level}等级水平。`,
+          potential: `学生具备学习${fallbackCourseTypeName}的潜力。`,
+          weakPoints: weakPoints.length > 0 ? `薄弱环节：${weakPoints.join('、')}` : '暂未发现明显薄弱环节。',
+          strengths: '学生在基础概念理解方面表现较好。',
+          development: '建议制定阶段性学习计划，巩固基础，逐步提升综合应用能力。',
+        };
+      }
+    }
+
+    // 插入记录（包含AI分析结果）
+    console.log(`[Submit] Inserting exam record with AI analysis...`);
     const recordResult = await db.run(
       'INSERT INTO exam_records (student_id, exam_id, score, level, answers, duration, recommendations, cheat_flags, tab_switch_count, question_times) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [student.id, examId, totalScore, level, JSON.stringify(answerResults), duration, JSON.stringify(defaultRecs), JSON.stringify(cheatFlags), tab_switch_count || 0, JSON.stringify(question_times || {})]
+      [student.id, examId, totalScore, level, JSON.stringify(answerResults), duration, JSON.stringify(mergedRecs), JSON.stringify(cheatFlags), tab_switch_count || 0, JSON.stringify(question_times || {})]
     );
 
     const recordId = recordResult.lastID;
     console.log(`[Submit] Record inserted, recordId=${recordId}`);
 
-    // 异步执行AI分析（不阻塞响应）
-    // 使用独立的数据库连接，避免与主连接冲突
-    setTimeout(async () => {
-      try {
-        console.log(`[AI] Starting async AI analysis for recordId=${recordId}`);
-        const aiRecs = await generateRecommendations(level, exam.course_type, student, weakPoints, knowledgePointStats);
-        try {
-          const updateDb = await getDb();
-          await updateDb.run(
-            'UPDATE exam_records SET recommendations = ? WHERE id = ?',
-            [JSON.stringify(aiRecs), recordId]
-          );
-          console.log(`[AI] AI analysis completed, recordId=${recordId}`);
-        } catch (updateError: any) {
-          console.error(`[AI] Result update failed for recordId=${recordId}:`, updateError.message);
+    // 计算并保存18小类维度分数（按维度代码聚合）
+    const dimensionScoresByCode: Record<string, { correct: number; total: number }> = {};
+    try {
+      const dimensionScoreDetails: Record<string, { score: number; maxScore: number }> = {};
+      for (const eq of examQuestions) {
+        const dimCode = eq.dimension_code || inferDimensionFromKnowledgePoint(eq.knowledge_point);
+        if (!dimensionScoreDetails[dimCode]) {
+          dimensionScoreDetails[dimCode] = { score: 0, maxScore: 0 };
         }
-      } catch (aiError: any) {
-        console.error(`[AI] Analysis failed for recordId=${recordId}:`, aiError.message);
-      }
-    }, 100);
+        dimensionScoreDetails[dimCode].maxScore += eq.exam_score || 5;
+        if (answers[eq.sequence] === eq.answer) {
+          dimensionScoreDetails[dimCode].score += eq.exam_score || 5;
+        }
 
-    // 立即返回，不等待AI
-    console.log(`[Submit] Responding immediately with recordId=${recordId}`);
+        // 同时构建用于学生画像的维度分数（correct/total格式）
+        if (!dimensionScoresByCode[dimCode]) {
+          dimensionScoresByCode[dimCode] = { correct: 0, total: 0 };
+        }
+        dimensionScoresByCode[dimCode].total++;
+        if (answers[eq.sequence] === eq.answer) {
+          dimensionScoresByCode[dimCode].correct++;
+        }
+      }
+
+      for (const [dimCode, scores] of Object.entries(dimensionScoreDetails)) {
+        const percentage = scores.maxScore > 0 ? Math.round((scores.score / scores.maxScore) * 100) : 0;
+        await db.run(
+          `INSERT INTO dimension_scores (exam_record_id, course_type, dimension_code, score, max_score, percentage)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(exam_record_id, dimension_code) DO UPDATE SET
+           score = ?, max_score = ?, percentage = ?`,
+          [recordId, exam.course_type, dimCode, scores.score, scores.maxScore, percentage,
+           scores.score, scores.maxScore, percentage]
+        );
+      }
+      console.log(`[Submit] Saved dimension scores for recordId=${recordId}`);
+    } catch (dimErr: any) {
+      console.error(`[Submit] Failed to save dimension scores:`, dimErr.message);
+    }
+
+    // 更新学生能力画像和成长历史（使用维度代码聚合的数据）
+    try {
+      await updateStudentAbilityProfile(student.id, exam.course_type, student.grade, dimensionScoresByCode);
+      await saveGrowthHistory(student.id, exam.course_type, recordId, dimensionScoresByCode);
+      console.log(`[Submit] Updated student ability profile for student_id=${student.id}`);
+    } catch (profileErr) {
+      console.error(`[Submit] Failed to update student profile:`, profileErr);
+    }
+
+    // 返回完整结果（包含AI分析）
+    console.log(`[Submit] Responding with complete AI analysis, recordId=${recordId}`);
     res.json({
       recordId,
       score: totalScore,
       level,
       answerResults,
-      recommendations: defaultRecs,
+      recommendations: mergedRecs,
       message: '提交成功',
     });
   } catch (error: any) {
@@ -763,6 +1110,51 @@ router.get('/:id/records', authMiddleware, async (req: AuthRequest, res) => {
     res.json(records);
   } catch (error) {
     res.status(500).json({ message: '获取测评记录失败' });
+  }
+});
+
+// 获取试卷详情（包含学生答题记录）
+router.get('/:id/detail-with-records', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb();
+    const examId = req.params.id;
+
+    // 获取试卷信息
+    const exam = await db.get('SELECT * FROM exams WHERE id = ?', [examId]);
+    if (!exam) {
+      res.status(404).json({ message: '试卷不存在' });
+      return;
+    }
+
+    // 获取题目
+    const questions = await db.all(`
+      SELECT q.*, eq.sequence, eq.score as exam_score
+      FROM exam_questions eq
+      JOIN questions q ON eq.question_id = q.id
+      WHERE eq.exam_id = ?
+      ORDER BY eq.sequence
+    `, [examId]);
+
+    // 获取学生答题记录
+    const records = await db.all(`
+      SELECT er.id, er.student_id, er.score, er.level, er.answers, er.duration, er.created_at,
+             s.name as student_name
+      FROM exam_records er
+      JOIN students_info s ON er.student_id = s.id
+      WHERE er.exam_id = ?
+      ORDER BY er.created_at DESC
+    `, [examId]);
+
+    // 解析answers JSON
+    const parsedRecords = records.map((r: any) => ({
+      ...r,
+      answers: r.answers ? JSON.parse(r.answers) : [],
+    }));
+
+    res.json({ ...exam, questions, records: parsedRecords });
+  } catch (error: any) {
+    console.error('Get exam detail with records error:', error.message);
+    res.status(500).json({ message: '获取试卷详情失败: ' + (error.message || '未知错误') });
   }
 });
 
@@ -875,6 +1267,92 @@ router.get('/admin/list', authMiddleware, async (req: AuthRequest, res) => {
   } catch (error: any) {
     console.error('[Admin Exams] Error:', error);
     res.status(500).json({ message: '获取试卷列表失败: ' + (error.message || '未知错误') });
+  }
+});
+
+// GET /exams/statistics - 获取测评统计数据
+router.get('/statistics', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb();
+    const stats = await db.get(`
+      SELECT
+        COUNT(DISTINCT e.id) as total_exams,
+        COUNT(DISTINCT er.id) as total_records,
+        COUNT(DISTINCT er.student_id) as total_students,
+        AVG(er.score * 100.0 / er.total_score) as avg_score_percent,
+        COUNT(CASE WHEN er.score * 100.0 / er.total_score >= 80 THEN 1 END) as excellent_count,
+        COUNT(CASE WHEN er.score * 100.0 / er.total_score >= 60 THEN 1 END) as pass_count
+      FROM exams e
+      LEFT JOIN exam_records er ON e.id = er.exam_id
+    `);
+
+    const courseStats = await db.all(`
+      SELECT
+        e.course_type,
+        COUNT(er.id) as record_count,
+        AVG(er.score * 100.0 / er.total_score) as avg_score
+      FROM exams e
+      LEFT JOIN exam_records er ON e.id = er.exam_id
+      GROUP BY e.course_type
+    `);
+
+    const recentRecords = await db.all(`
+      SELECT
+        er.id,
+        er.score,
+        er.total_score,
+        er.level,
+        er.duration,
+        er.created_at,
+        e.name as exam_name,
+        e.course_type,
+        s.name as student_name
+      FROM exam_records er
+      JOIN exams e ON er.exam_id = e.id
+      LEFT JOIN students_info s ON er.student_id = s.id
+      ORDER BY er.created_at DESC
+      LIMIT 10
+    `);
+
+    res.json({
+      overview: stats || {},
+      byCourse: courseStats || [],
+      recent: recentRecords || [],
+    });
+  } catch (error: any) {
+    console.error('[Statistics] Error:', error);
+    res.status(500).json({ message: '获取统计数据失败: ' + (error.message || '未知错误') });
+  }
+});
+
+// POST /exams/records/:recordId/regenerate - 重新生成报告
+router.post('/records/:recordId/regenerate', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const db = await getDb();
+    const recordId = req.params.recordId;
+
+    const record = await db.get('SELECT * FROM exam_records WHERE id = ?', [recordId]);
+    if (!record) {
+      res.status(404).json({ message: '记录不存在' });
+      return;
+    }
+
+    // 清除现有报告数据，触发重新生成
+    await db.run(
+      `UPDATE exam_records SET
+        report = NULL,
+        recommendations = NULL,
+        dimension_scores = NULL,
+        ai_analysis_status = 'pending',
+        updated_at = datetime('now')
+      WHERE id = ?`,
+      [recordId]
+    );
+
+    res.json({ success: true, message: '报告重新生成已触发', recordId });
+  } catch (error: any) {
+    console.error('[Regenerate] Error:', error);
+    res.status(500).json({ message: '重新生成报告失败: ' + (error.message || '未知错误') });
   }
 });
 

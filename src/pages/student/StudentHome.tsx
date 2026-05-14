@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
-import { studentApi, examApi, noticeApi } from '../../api/client';
-import { ClipboardList, BarChart3, Bell, Sparkles, Clock, TrendingUp } from 'lucide-react';
+import { studentApi, examApi, noticeApi, dashboardApi } from '../../api/client';
+import { ClipboardList, BarChart3, Bell, Sparkles, Clock, TrendingUp, Trophy, Target, Medal } from 'lucide-react';
 import GrowthChart from '../../components/GrowthChart';
+import MiniRadar from '../../components/MiniRadar';
+import { formatDate } from '../../utils/dateFormat';
 
 export default function StudentHome() {
   const navigate = useNavigate();
@@ -11,6 +13,7 @@ export default function StudentHome() {
   const [student, setStudent] = useState<any>(null);
   const [records, setRecords] = useState<any[]>([]);
   const [notices, setNotices] = useState<any[]>([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,12 +25,14 @@ export default function StudentHome() {
       const currentStudent = await studentApi.me();
       if (currentStudent) {
         setStudent(currentStudent);
-        const [recordsData, noticesData] = await Promise.all([
+        const [recordsData, noticesData, trendsData] = await Promise.all([
           studentApi.records(currentStudent.id),
           noticeApi.list({ student_id: currentStudent.id.toString() }),
+          dashboardApi.trends().catch(() => null),
         ]);
         setRecords(recordsData);
         setNotices(noticesData);
+        setLeaderboard(trendsData?.activeStudents || []);
       }
     } catch (error) {
       console.error(error);
@@ -53,6 +58,14 @@ export default function StudentHome() {
       icon: <BarChart3 size={24} />,
       path: '/student/report',
       color: 'bg-amber-500',
+      requireInfo: true,
+    },
+    {
+      title: '成长档案',
+      desc: '查看成长轨迹与徽章',
+      icon: <Trophy size={24} />,
+      path: '/student/growth',
+      color: 'bg-purple-500',
       requireInfo: true,
     },
     {
@@ -138,7 +151,57 @@ export default function StudentHome() {
         </div>
       )}
 
+      {/* 能力雷达图 - 最新测评 */}
+      {latestRecord && (
+        <div className="glass-card rounded-3xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+              <Target className="text-blue-600" size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">能力雷达图</h2>
+              <p className="text-sm text-slate-500">最新测评能力维度分布</p>
+            </div>
+          </div>
+          <MiniRadar record={latestRecord} />
+        </div>
+      )}
+
       <GrowthChart records={records} />
+
+      {/* 活跃排行榜 */}
+      {leaderboard.length > 0 && (
+        <div className="glass-card rounded-3xl p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+              <Medal className="text-amber-600" size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">活跃排行榜</h2>
+              <p className="text-sm text-slate-500">测评次数最多的同学</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {leaderboard.slice(0, 5).map((s: any, idx: number) => (
+              <div key={s.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${
+                  idx === 0 ? 'bg-amber-100 text-amber-600' :
+                  idx === 1 ? 'bg-slate-200 text-slate-600' :
+                  idx === 2 ? 'bg-orange-100 text-orange-600' :
+                  'bg-slate-100 text-slate-500'
+                }`}>
+                  {idx + 1}
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-800">{s.name}</p>
+                  <p className="text-xs text-slate-500">{s.exam_count}次测评 · 平均{s.avg_score ? Math.round(s.avg_score) : 0}%</p>
+                </div>
+                {idx < 3 && <Medal size={16} className={idx === 0 ? 'text-amber-500' : idx === 1 ? 'text-slate-400' : 'text-orange-400'} />}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!student?.grade && (
         <div className="glass-card rounded-3xl p-6 bg-amber-50 border-amber-200">

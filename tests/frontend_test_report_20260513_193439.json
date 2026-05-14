@@ -1,0 +1,223 @@
+{
+  "timestamp": "2026-05-13T19:34:39.319218",
+  "total": 31,
+  "passed": 21,
+  "failed": 10,
+  "pass_rate": 67.74193548387096,
+  "results": [
+    {
+      "name": "Landing page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Landing page has title",
+      "status": "FAIL",
+      "error": "value must be a string or regular expression"
+    },
+    {
+      "name": "Landing page has navigation",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Landing has hero section",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Login page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin login succeeds",
+      "status": "FAIL",
+      "error": "Page URL expected not to be 'http://localhost:5173/login'\nActual value: http://localhost:5173/login \nCall log:\n  - Expect \"to_have_url\" with timeout 5000ms\n    9 × unexpected value \"http://localhost:5173/login\"\n"
+    },
+    {
+      "name": "Admin dashboard has stats",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 学员管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 课程管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 测评管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 题库管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 班级管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 证书管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Admin 知识库 page loads",
+      "status": "FAIL",
+      "error": "Locator expected to be visible\nActual value: hidden \nCall log:\n  - Expect \"to_be_visible\" with timeout 5000ms\n  - waiting for locator(\"body\")\n    9 × locator resolved to <body>…</body>\n      - unexpected value \"hidden\"\n"
+    },
+    {
+      "name": "Merged exam page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Merged page has tabs",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Old exam-config redirects",
+      "status": "FAIL",
+      "error": "value must be a string or regular expression"
+    },
+    {
+      "name": "Old exam-records redirects",
+      "status": "FAIL",
+      "error": "value must be a string or regular expression"
+    },
+    {
+      "name": "Student login succeeds",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Student home has content",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Student 基本信息 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Student 我的测评 page loads",
+      "status": "FAIL",
+      "error": "Locator expected to be visible\nActual value: hidden \nCall log:\n  - Expect \"to_be_visible\" with timeout 5000ms\n  - waiting for locator(\"body\")\n    9 × locator resolved to <body>…</body>\n      - unexpected value \"hidden\"\n"
+    },
+    {
+      "name": "Student 成长档案 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Student 通知公告 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Teacher login succeeds",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Teacher 班级管理 page loads",
+      "status": "FAIL",
+      "error": "Locator expected to be visible\nActual value: hidden \nCall log:\n  - Expect \"to_be_visible\" with timeout 5000ms\n  - waiting for locator(\"body\")\n    9 × locator resolved to <body>…</body>\n      - unexpected value \"hidden\"\n"
+    },
+    {
+      "name": "Teacher 测评管理 page loads",
+      "status": "FAIL",
+      "error": "Locator expected to be visible\nActual value: hidden \nCall log:\n  - Expect \"to_be_visible\" with timeout 5000ms\n  - waiting for locator(\"body\")\n    9 × locator resolved to <body>…</body>\n      - unexpected value \"hidden\"\n"
+    },
+    {
+      "name": "Teacher 学员管理 page loads",
+      "status": "PASS",
+      "error": null
+    },
+    {
+      "name": "Teacher 报告管理 page loads",
+      "status": "FAIL",
+      "error": "Locator expected to be visible\nActual value: hidden \nCall log:\n  - Expect \"to_be_visible\" with timeout 5000ms\n  - waiting for locator(\"body\")\n    9 × locator resolved to <body>…</body>\n      - unexpected value \"hidden\"\n"
+    },
+    {
+      "name": "Teacher 通知管理 page loads",
+      "status": "FAIL",
+      "error": "Locator expected to be visible\nActual value: hidden \nCall log:\n  - Expect \"to_be_visible\" with timeout 5000ms\n  - waiting for locator(\"body\")\n    9 × locator resolved to <body>…</body>\n      - unexpected value \"hidden\"\n"
+    },
+    {
+      "name": "No critical console errors (0 errors)",
+      "status": "PASS",
+      "error": null
+    }
+  ],
+  "console_errors": [],
+  "console_warnings": [
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/admin/knowledge\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/admin/knowledge\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/student/exams\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/student/exams\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/student/exams\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/student/exams\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/classes\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/classes\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/exams\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/exams\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/reports\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/reports\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/notices\" "
+    },
+    {
+      "type": "warning",
+      "text": "No routes matched location \"/teacher/notices\" "
+    }
+  ]
+}

@@ -5,6 +5,7 @@ import {
   MapPin, Users, Clock, ChevronDown, ChevronUp, GraduationCap,
   BookOpen, Tag, DollarSign, CheckCircle, AlertCircle, Monitor, Target, Trophy
 } from 'lucide-react';
+import { formatDate } from '../../utils/dateFormat';
 
 const courseTypeLabels: Record<string, { text: string; color: string; bg: string }> = {
   aigc: { text: 'AIGC素养', color: 'text-purple-600', bg: 'bg-purple-100' },
@@ -431,8 +432,8 @@ export default function AdminCourses() {
                               </span>
                               <span className="flex items-center gap-1">
                                 <Calendar size={12} className="text-slate-400" />
-                                {schedule.start_date ? new Date(schedule.start_date).toLocaleDateString('zh-CN') : '待定'}
-                                {schedule.end_date ? ` ~ ${new Date(schedule.end_date).toLocaleDateString('zh-CN')}` : ''}
+                                {schedule.start_date ? formatDate(schedule.start_date) : '待定'}
+                              {schedule.end_date ? ` ~ ${formatDate(schedule.end_date)}` : ''}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Clock size={12} className="text-slate-400" />

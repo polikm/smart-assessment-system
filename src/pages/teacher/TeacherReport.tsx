@@ -13,6 +13,7 @@ import {
 import { Bar, Doughnut } from 'react-chartjs-2';
 import { BarChart3, Users, TrendingUp, Award, Eye } from 'lucide-react';
 import ReportDetail from '../../components/ReportDetail';
+import { formatDate } from '../../utils/dateFormat';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, ArcElement, Tooltip, Legend);
 
@@ -219,7 +220,7 @@ export default function TeacherReport() {
                     {Math.floor((record.duration || 0) / 60)}:{String((record.duration || 0) % 60).padStart(2, '0')}
                   </td>
                   <td className="py-3 text-sm text-slate-500">
-                    {new Date(record.created_at).toLocaleDateString('zh-CN')}
+                    {formatDate(record.created_at)}
                   </td>
                   <td className="py-3">
                     <button

@@ -3,6 +3,7 @@ import { noticeApi, studentApi } from '../../api/client';
 import { Bell, Send, FileText, Check, Users, Eye } from 'lucide-react';
 import AdmissionPoster from '../../components/AdmissionPoster';
 import { renderPoster, posterTemplates, type PosterData } from '../../utils/posterCanvas';
+import { formatDate } from '../../utils/dateFormat';
 
 export default function TeacherNotice() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -91,7 +92,7 @@ export default function TeacherNotice() {
       level: 'A',
       score: 95,
       schoolName: designConfig.schoolName || '未来科技学院',
-      date: new Date().toLocaleDateString('zh-CN'),
+      date: formatDate(new Date().toISOString()),
       phone: designConfig.phone || '400-888-8888',
     };
 
@@ -159,7 +160,7 @@ export default function TeacherNotice() {
       level: 'A',
       score: 95,
       schoolName: designConfig.schoolName || '未来科技学院',
-      date: new Date().toLocaleDateString('zh-CN'),
+      date: formatDate(new Date().toISOString()),
       phone: designConfig.phone || '400-888-8888',
     };
   };

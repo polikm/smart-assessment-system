@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { noticeApi } from '../../api/client';
 import { FileText, Plus, X, Save, Trash2, Eye, Palette } from 'lucide-react';
 import { renderPoster, posterTemplates, type PosterData } from '../../utils/posterCanvas';
+import { formatDate } from '../../utils/dateFormat';
 
 const defaultPreviewData: PosterData = {
   studentName: '张三',
@@ -9,7 +10,7 @@ const defaultPreviewData: PosterData = {
   level: 'A',
   score: 95,
   schoolName: '未来科技学院',
-  date: new Date().toLocaleDateString('zh-CN'),
+  date: formatDate(new Date().toISOString()),
   phone: '400-888-8888',
 };
 

@@ -1,3 +1,5 @@
+import { formatDate } from './dateFormat';
+
 export interface PosterData {
   studentName: string;
   courseTypeName: string;
@@ -247,7 +249,7 @@ export function renderPoster(
   ctx.font = `13px sans-serif`;
   ctx.textAlign = 'left';
   const infoX = width * 0.2;
-  ctx.fillText(`报到日期：${data.date || new Date().toLocaleDateString('zh-CN')}`, infoX, y);
+  ctx.fillText(`报到日期：${data.date || formatDate(new Date().toISOString())}`, infoX, y);
 
   y += 28;
   ctx.fillText(`联系电话：${data.phone || '400-888-8888'}`, infoX, y);

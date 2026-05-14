@@ -11,6 +11,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { TrendingUp, Award, BarChart3 } from 'lucide-react';
+import { formatDateShort } from '../utils/dateFormat';
 
 ChartJS.register(
   CategoryScale,
@@ -45,7 +46,7 @@ export default function GrowthChart({ records }: GrowthChartProps) {
   const recentRecords = sortedRecords.slice(-10);
 
   const labels = recentRecords.map((r) =>
-    new Date(r.created_at).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+    formatDateShort(r.created_at)
   );
 
   const scores = recentRecords.map((r) => r.score);

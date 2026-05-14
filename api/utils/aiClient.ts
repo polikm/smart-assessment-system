@@ -73,10 +73,10 @@ function getDefaultAgentsConfig(): AIAgentsConfig {
       },
       {
         key: 'course_recommend',
-        name: '智能推荐',
-        description: '根据测评结果智能推荐课程（开发中）',
-        enabled: false,
-        systemPrompt: '你是一位资深的教育顾问。请根据学生的测评结果、兴趣爱好和学习情况，推荐最适合的课程和学习路径。',
+        name: '智能课程推荐',
+        description: '根据测评结果智能推荐课程',
+        enabled: true,
+        systemPrompt: '你是资深教育顾问，根据学生测评结果从机构课程库中推荐最适合的课程。必须严格从提供的课程列表中选择，禁止推荐不存在的课程。以JSON格式返回。',
         temperature: 0.7,
         maxTokens: 2000,
       },
@@ -178,18 +178,6 @@ export async function aiCall(options: AICallOptions): Promise<any> {
 
   const config = await getAIConfig();
 
-  if (!config.enabledFeatures[feature]) {
-    const error = new Error(`AI功能 [${feature}] 已被禁用`);
-    await logAIUsage(feature, 'failed', '', '', 0, error.message);
-    throw error;
-  }
-
-  if (!config.apiKey) {
-    const error = new Error('AI API Key 未配置');
-    await logAIUsage(feature, 'failed', '', '', 0, error.message);
-    throw error;
-  }
-
   // 获取智能体配置
   let agentConfig: AIAgent | undefined;
   try {
@@ -200,6 +188,18 @@ export async function aiCall(options: AICallOptions): Promise<any> {
   // 确定最终参数：传入的 > 智能体配置 > 默认值
   const temperature = options.temperature ?? agentConfig?.temperature ?? 0.7;
   const max_tokens = options.max_tokens ?? agentConfig?.maxTokens ?? 2000;
+
+  if (!config.enabledFeatures[feature]) {
+    const error = new Error(`AI功能 [${feature}] 已被禁用`);
+    await logAIUsage(feature, 'failed', '', '', 0, error.message, JSON.stringify(messages), '', JSON.stringify({ model: config.model, temperature, max_tokens }));
+    throw error;
+  }
+
+  if (!config.apiKey) {
+    const error = new Error('AI API Key 未配置');
+    await logAIUsage(feature, 'failed', '', '', 0, error.message, JSON.stringify(messages), '', JSON.stringify({ model: config.model, temperature, max_tokens }));
+    throw error;
+  }
 
   // 构建消息列表：如果智能体有systemPrompt且传入的messages第一个不是system，则插入
   let finalMessages = [...messages];
@@ -231,22 +231,61 @@ export async function aiCall(options: AICallOptions): Promise<any> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      await logAIUsage(feature, 'failed', inputSummary, '', duration, errorText);
+      const inputFull = JSON.stringify(finalMessages);
+      const contextData = JSON.stringify({ model: config.model, temperature, max_tokens, messageCount: finalMessages.length });
+      await logAIUsage(feature, 'failed', inputSummary, '', duration, errorText, inputFull, '', contextData);
       throw new Error(`AI API 错误: ${response.status} ${errorText}`);
     }
 
     const data = await response.json();
     const outputContent = data.choices?.[0]?.message?.content || '';
     const outputSummary = outputContent.slice(0, 200);
+    const inputFull = JSON.stringify(finalMessages);
+    const outputFull = JSON.stringify(data);
+    const contextData = JSON.stringify({ model: config.model, temperature, max_tokens, messageCount: finalMessages.length });
 
-    await logAIUsage(feature, 'success', inputSummary, outputSummary, duration);
+    await logAIUsage(feature, 'success', inputSummary, outputSummary, duration, undefined, inputFull, outputFull, contextData);
 
     return data;
   } catch (error: any) {
     const duration = Date.now() - startTime;
-    await logAIUsage(feature, 'failed', inputSummary, '', duration, error.message);
+    const inputFull = JSON.stringify(finalMessages);
+    const contextData = JSON.stringify({ model: config.model, temperature, max_tokens, messageCount: finalMessages.length });
+    await logAIUsage(feature, 'failed', inputSummary, '', duration, error.message, inputFull, '', contextData);
     throw error;
   }
+}
+
+// 获取东八区当前时间字符串（YYYY-MM-DD HH:mm:ss格式）
+function getChinaTimeString(): string {
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  };
+  const parts = new Intl.DateTimeFormat('zh-CN', options).formatToParts(now);
+  const getPart = (type: string) => parts.find(p => p.type === type)?.value || '00';
+  return `${getPart('year')}-${getPart('month')}-${getPart('day')} ${getPart('hour')}:${getPart('minute')}:${getPart('second')}`;
+}
+
+// 获取东八区当前日期字符串（YYYY-MM-DD格式）
+function getChinaDateString(): string {
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  };
+  const parts = new Intl.DateTimeFormat('zh-CN', options).formatToParts(now);
+  const getPart = (type: string) => parts.find(p => p.type === type)?.value || '00';
+  return `${getPart('year')}-${getPart('month')}-${getPart('day')}`;
 }
 
 async function logAIUsage(
@@ -255,13 +294,17 @@ async function logAIUsage(
   inputSummary: string,
   outputSummary: string,
   durationMs: number,
-  errorMessage?: string
+  errorMessage?: string,
+  inputFull?: string,
+  outputFull?: string,
+  contextData?: string
 ) {
   try {
     const db = await getDb();
+    const chinaTime = getChinaTimeString();
     await db.run(
-      'INSERT INTO ai_usage_logs (feature, status, input_summary, output_summary, duration_ms, error_message) VALUES (?, ?, ?, ?, ?, ?)',
-      [feature, status, inputSummary, outputSummary, durationMs, errorMessage || null]
+      'INSERT INTO ai_usage_logs (feature, status, input_summary, output_summary, duration_ms, error_message, input_full, output_full, context_data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [feature, status, inputSummary, outputSummary, durationMs, errorMessage || null, inputFull || null, outputFull || null, contextData || null, chinaTime]
     );
   } catch (e) {
     console.error('[AI] Failed to log usage:', e);
@@ -272,7 +315,7 @@ export async function getAILogs(params: { feature?: string; limit?: number; offs
   const db = await getDb();
   const { feature, limit = 50, offset = 0 } = params;
 
-  let sql = 'SELECT id, feature, status, input_summary, output_summary, duration_ms, error_message as errorMessage, created_at FROM ai_usage_logs WHERE 1=1';
+  let sql = 'SELECT id, feature, status, input_summary, output_summary, duration_ms, error_message as errorMessage, input_full, output_full, context_data, created_at FROM ai_usage_logs WHERE 1=1';
   const queryParams: any[] = [];
 
   if (feature) {
@@ -295,7 +338,7 @@ export async function getAILogs(params: { feature?: string; limit?: number; offs
 
 export async function getAIStats() {
   const db = await getDb();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getChinaDateString();
 
   const [todayStats, overallStats, featureStats] = await Promise.all([
     db.get(

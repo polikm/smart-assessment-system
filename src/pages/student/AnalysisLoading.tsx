@@ -18,11 +18,10 @@ export default function AnalysisLoading() {
   const [statusIndex, setStatusIndex] = useState(0);
   const [error, setError] = useState('');
   const startTimeRef = useRef(Date.now());
+  const pollingRef = useRef<ReturnType<typeof setInterval>>();
 
   const recordId = location.state?.recordId;
-  const MIN_DISPLAY_TIME = 10000; // 最少展示10秒
-  const MAX_WAIT_TIME = 120000;   // 最多等待120秒
-  const CHECK_INTERVAL = 1500;    // 轮询间隔1.5秒
+  const MIN_DISPLAY_TIME = 3000;
 
   useEffect(() => {
     if (!recordId) {
@@ -31,65 +30,67 @@ export default function AnalysisLoading() {
     }
 
     startTimeRef.current = Date.now();
+    let progressInterval: ReturnType<typeof setInterval>;
 
-    // 进度条动画 - 基于最大等待时间
-    const progressInterval = setInterval(() => {
+    // 进度条动画
+    progressInterval = setInterval(() => {
       const elapsed = Date.now() - startTimeRef.current;
-      const progressPercent = Math.min(100, (elapsed / MAX_WAIT_TIME) * 100);
+      const progressPercent = Math.min(95, (elapsed / MIN_DISPLAY_TIME) * 100);
       setProgress(progressPercent);
 
-      // 更新状态消息
       const messageIndex = Math.min(
-        statusMessages.length - 1,
+        statusMessages.length - 2,
         Math.floor((progressPercent / 100) * statusMessages.length)
       );
       setStatusIndex(messageIndex);
+    }, 100);
 
-      if (elapsed >= MAX_WAIT_TIME) {
-        clearInterval(progressInterval);
-      }
-    }, 200);
-
-    // 轮询检查报告状态
-    let isWaitingForDelay = false;
-
+    // 轮询检查分析状态
     const checkStatus = async () => {
       try {
         const status = await examApi.checkStatus(recordId);
-        const elapsed = Date.now() - startTimeRef.current;
+        if (status.ready) {
+          // 分析完成，确保最少展示时间
+          const elapsed = Date.now() - startTimeRef.current;
+          const remaining = Math.max(0, MIN_DISPLAY_TIME - elapsed);
 
-        // 如果报告已生成且已超过最少展示时间，则等待3秒后跳转
-        if (status.ready && elapsed >= MIN_DISPLAY_TIME && !isWaitingForDelay) {
-          isWaitingForDelay = true;
+          setProgress(100);
           setStatusIndex(statusMessages.length - 1);
-          // 等待3秒确保内容完全加载
-          setTimeout(() => {
-            clearInterval(progressInterval);
-            clearTimeout(checkTimeout);
-            navigate('/student/report');
-          }, 3000);
-          return;
-        }
 
-        // 如果超过最大等待时间，强制跳转
-        if (elapsed >= MAX_WAIT_TIME) {
+          setTimeout(() => {
+            navigate('/student/report');
+          }, remaining + 500);
+
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+          }
           clearInterval(progressInterval);
-          clearTimeout(checkTimeout);
-          navigate('/student/report');
-          return;
         }
       } catch (err: any) {
-        console.error('检查状态失败:', err);
+        console.error('[AnalysisLoading] Status check failed:', err.message);
+        // 轮询出错不立即报错，继续尝试
       }
     };
 
-    // 立即检查一次，然后定时轮询
+    // 立即检查一次
     checkStatus();
-    const checkTimeout = setInterval(checkStatus, CHECK_INTERVAL);
+
+    // 每2秒轮询一次
+    pollingRef.current = setInterval(checkStatus, 2000);
+
+    // 超时处理：最多等待60秒
+    const timeout = setTimeout(() => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+      clearInterval(progressInterval);
+      setError('分析超时，请查看报告页面获取结果');
+    }, 60000);
 
     return () => {
       clearInterval(progressInterval);
-      clearTimeout(checkTimeout);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      clearTimeout(timeout);
     };
   }, [navigate, recordId]);
 
@@ -100,7 +101,7 @@ export default function AnalysisLoading() {
           <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle className="text-red-400" size={32} />
           </div>
-          <h2 className="text-xl font-bold text-white mb-2">分析失败</h2>
+          <h2 className="text-xl font-bold text-white mb-2">分析超时</h2>
           <p className="text-red-300/70 text-sm mb-6">{error}</p>
           <button
             onClick={() => navigate('/student/report')}
@@ -165,7 +166,7 @@ export default function AnalysisLoading() {
 
         {/* Time hint */}
         <p className="text-white/30 text-xs mt-4">
-          预计需要 10-120 秒
+          AI分析可能需要一些时间，请耐心等待...
         </p>
       </div>
     </div>

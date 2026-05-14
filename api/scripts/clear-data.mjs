@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function clearData() {
-  const dbPath = path.join(__dirname, '..', '..', 'data.sqlite');
+  const dbPath = path.join(__dirname, '..', '..', 'data', 'data.sqlite');
   console.log('Opening database:', dbPath);
   const db = await open({
     filename: dbPath,

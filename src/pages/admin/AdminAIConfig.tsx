@@ -1,11 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
-import { configApi, apiFetch } from '../../api/client';
+import { configApi, apiFetch, knowledgeApi, faqApi } from '../../api/client';
 import {
   Cpu, Save, Check, X, Activity, Clock, Zap,
   FileText, Brain, Shield, TrendingUp, Edit3,
   Bot, Puzzle, Lightbulb, ChevronRight, Sliders,
-  MessageSquare, BarChart3, X as XIcon, Filter
+  MessageSquare, BarChart3, X as XIcon, Filter,
+  BookOpen, GraduationCap, Award, Database,
+  PieChart, TrendingUp as TrendingUpIcon, Users,
+  Eye, AlertCircle, Copy, CheckCircle,
+  Plus, Search, Trash2, Edit, HelpCircle, Tag, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { formatDateTime } from '../../utils/dateFormat';
+import { useTheme } from '../../components/ThemeProvider';
 
 interface AIConfig {
   ai_api_key: string;
@@ -37,6 +43,9 @@ interface AILog {
   output_summary: string;
   duration_ms: number;
   errorMessage: string;
+  input_full: string;
+  output_full: string;
+  context_data: string;
   created_at: string;
 }
 
@@ -94,7 +103,7 @@ function getDefaultAgents(): AIAgent[] {
     {
       key: 'exam_assemble',
       name: '智能组卷',
-      description: '根据知识点和难度智能组合试卷（开发中）',
+      description: '根据知识点和难度智能组合试卷',
       enabled: false,
       systemPrompt: '你是一位资深的试卷组卷专家。请根据给定的知识点、难度分布和题目数量要求，从题库中选择最合适的题目组合成一套试卷。',
       temperature: 0.5,
@@ -103,9 +112,9 @@ function getDefaultAgents(): AIAgent[] {
     {
       key: 'course_recommend',
       name: '智能推荐',
-      description: '根据测评结果智能推荐课程（开发中）',
-      enabled: false,
-      systemPrompt: '你是一位资深的教育顾问。请根据学生的测评结果、兴趣爱好和学习情况，推荐最适合的课程和学习路径。',
+      description: '根据测评结果智能推荐课程',
+      enabled: true,
+      systemPrompt: '你是资深教育顾问，根据学生测评结果从机构课程库中推荐最适合的课程。必须严格从提供的课程列表中选择，禁止推荐不存在的课程。以JSON格式返回。',
       temperature: 0.7,
       maxTokens: 2000,
     },
@@ -117,7 +126,7 @@ export default function AdminAIConfig() {
     ai_api_key: '',
     ai_api_endpoint: 'https://api.longcat.chat/openai/v1/chat/completions',
     ai_model: 'LongCat-Flash-Chat',
-    ai_enabled_features: JSON.stringify({ report_analysis: true, question_generate: true, question_review: true }),
+    ai_enabled_features: JSON.stringify({ report_analysis: true, question_generate: true, question_review: true, course_recommend: true }),
     ai_agents_config: '',
   });
   const [agents, setAgents] = useState<AIAgent[]>([]);
@@ -131,12 +140,36 @@ export default function AdminAIConfig() {
     byFeature: [],
   });
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'config' | 'agents' | 'logs'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'agents' | 'logs' | 'knowledge'>('config');
   const [isEditing, setIsEditing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null);
   const [drawerEditing, setDrawerEditing] = useState(false);
   const [drawerSaving, setDrawerSaving] = useState(false);
+
+  // Log Detail Modal State
+  const [logModalOpen, setLogModalOpen] = useState(false);
+  const [selectedLog, setSelectedLog] = useState<AILog | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // Knowledge Base State
+  const [knowledgeOverview, setKnowledgeOverview] = useState<any>(null);
+  const [dimensions, setDimensions] = useState<any[]>([]);
+  const [courses, setCourses] = useState<any[]>([]);
+  const [selectedCourseType, setSelectedCourseType] = useState<string>('scratch');
+  const [selectedGradeRange, setSelectedGradeRange] = useState<string>('1-3');
+  const [knowledgeTab, setKnowledgeTab] = useState<'overview' | 'dimensions' | 'courses' | 'faq'>('overview');
+
+  // FAQ State (from AdminKnowledgeBase)
+  const { isDark } = useTheme();
+  const [faqs, setFaqs] = useState<any[]>([]);
+  const [faqCategories, setFaqCategories] = useState<any[]>([]);
+  const [faqSearch, setFaqSearch] = useState('');
+  const [faqCategory, setFaqCategory] = useState('');
+  const [faqModalOpen, setFaqModalOpen] = useState(false);
+  const [editingFaq, setEditingFaq] = useState<any>(null);
+  const [expandedFaqId, setExpandedFaqId] = useState<number | null>(null);
+  const [faqForm, setFaqForm] = useState({ question: '', answer: '', category: 'general', tags: '', status: 'active' });
 
   useEffect(() => {
     loadData();
@@ -144,17 +177,20 @@ export default function AdminAIConfig() {
 
   const loadData = async () => {
     try {
-      const [configData, logsData, statsData] = await Promise.all([
+      const [configData, logsData, statsData, overviewData, dimData, courseData] = await Promise.all([
         configApi.get(),
         apiFetch('/ai-logs'),
         apiFetch('/ai-logs/stats'),
+        knowledgeApi.overview(),
+        knowledgeApi.dimensions(),
+        knowledgeApi.courses(),
       ]);
 
       setConfig({
         ai_api_key: configData.ai_api_key || '',
         ai_api_endpoint: configData.ai_api_endpoint || 'https://api.longcat.chat/openai/v1/chat/completions',
         ai_model: configData.ai_model || 'LongCat-Flash-Chat',
-        ai_enabled_features: configData.ai_enabled_features || JSON.stringify({ report_analysis: true, question_generate: true, question_review: true }),
+        ai_enabled_features: configData.ai_enabled_features || JSON.stringify({ report_analysis: true, question_generate: true, question_review: true, course_recommend: true }),
         ai_agents_config: configData.ai_agents_config || '',
       });
 
@@ -181,11 +217,77 @@ export default function AdminAIConfig() {
         overall: { total: 0, success: 0, rate: 0 },
         byFeature: [],
       });
+
+      // Knowledge Base
+      setKnowledgeOverview(overviewData);
+      setDimensions(dimData || []);
+      setCourses(courseData || []);
+
+      // FAQ (from AdminKnowledgeBase)
+      const [faqList, catList] = await Promise.all([
+        faqApi.list({ status: 'all' } as any),
+        faqApi.categories(),
+      ]);
+      setFaqs(faqList);
+      setFaqCategories(catList);
     } catch (error) {
       console.error(error);
     } finally {
       setLoading(false);
     }
+  };
+
+  // FAQ handlers
+  const loadFaqs = async () => {
+    try {
+      const [faqList, catList] = await Promise.all([
+        faqApi.list({ status: 'all' } as any),
+        faqApi.categories(),
+      ]);
+      setFaqs(faqList);
+      setFaqCategories(catList);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleDeleteFaq = async (id: number) => {
+    if (!confirm('确定要删除这个FAQ吗？')) return;
+    try {
+      await faqApi.delete(id);
+      loadFaqs();
+    } catch (error) {
+      alert('删除失败');
+    }
+  };
+
+  const handleSubmitFaq = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (editingFaq) {
+        await faqApi.update(editingFaq.id, faqForm);
+      } else {
+        await faqApi.create(faqForm);
+      }
+      setFaqModalOpen(false);
+      setEditingFaq(null);
+      setFaqForm({ question: '', answer: '', category: 'general', tags: '', status: 'active' });
+      loadFaqs();
+    } catch (error) {
+      alert('保存失败');
+    }
+  };
+
+  const handleEditFaq = (faq: any) => {
+    setEditingFaq(faq);
+    setFaqForm({
+      question: faq.question,
+      answer: faq.answer,
+      category: faq.category || 'general',
+      tags: faq.tags || '',
+      status: faq.status || 'active',
+    });
+    setFaqModalOpen(true);
   };
 
   const handleSave = async () => {
@@ -289,31 +391,39 @@ export default function AdminAIConfig() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-800">AI模型配置</h1>
         <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1">
-          <button
-            onClick={() => setActiveTab('config')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'config' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
-            }`}
-          >
-            配置
-          </button>
-          <button
-            onClick={() => setActiveTab('agents')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'agents' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
-            }`}
-          >
-            智能体管理
-          </button>
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'logs' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
-            }`}
-          >
-            使用记录
-          </button>
-        </div>
+              <button
+                onClick={() => setActiveTab('config')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'config' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+                }`}
+              >
+                配置
+              </button>
+              <button
+                onClick={() => setActiveTab('agents')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'agents' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+                }`}
+              >
+                智能体管理
+              </button>
+              <button
+                onClick={() => setActiveTab('knowledge')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'knowledge' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+                }`}
+              >
+                知识库
+              </button>
+              <button
+                onClick={() => setActiveTab('logs')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'logs' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+                }`}
+              >
+                使用记录
+              </button>
+            </div>
       </div>
 
       {activeTab === 'config' && (
@@ -499,6 +609,538 @@ export default function AdminAIConfig() {
         </div>
       )}
 
+      {activeTab === 'knowledge' && (
+        <div className="space-y-6">
+          {/* Overview Stats */}
+          {knowledgeOverview && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="glass-card rounded-2xl p-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <Award className="text-blue-600" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-800">{knowledgeOverview.dimensions || 0}</p>
+                    <p className="text-xs text-slate-500">测评维度</p>
+                  </div>
+                </div>
+              </div>
+              <div className="glass-card rounded-2xl p-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                    <BookOpen className="text-emerald-600" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-800">{knowledgeOverview.courses || 0}</p>
+                    <p className="text-xs text-slate-500">课程知识</p>
+                  </div>
+                </div>
+              </div>
+              <div className="glass-card rounded-2xl p-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+                    <Users className="text-amber-600" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-800">{knowledgeOverview.students || 0}</p>
+                    <p className="text-xs text-slate-500">学生画像</p>
+                  </div>
+                </div>
+              </div>
+              <div className="glass-card rounded-2xl p-5">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <Database className="text-purple-600" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-slate-800">{knowledgeOverview.questions || 0}</p>
+                    <p className="text-xs text-slate-500">关联题目</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Knowledge Tab Navigation */}
+          <div className="flex items-center gap-2 bg-slate-100 rounded-xl p-1 w-fit">
+            <button
+              onClick={() => setKnowledgeTab('overview')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                knowledgeTab === 'overview' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+              }`}
+            >
+              概览
+            </button>
+            <button
+              onClick={() => setKnowledgeTab('dimensions')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                knowledgeTab === 'dimensions' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+              }`}
+            >
+              测评维度
+            </button>
+            <button
+              onClick={() => setKnowledgeTab('courses')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                knowledgeTab === 'courses' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+              }`}
+            >
+              课程知识
+            </button>
+            <button
+              onClick={() => setKnowledgeTab('faq')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                knowledgeTab === 'faq' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'
+              }`}
+            >
+              FAQ知识库
+            </button>
+          </div>
+
+          {/* Dimension Content */}
+          {knowledgeTab === 'dimensions' && (
+            <div className="space-y-4">
+              <div className="glass-card rounded-3xl p-6">
+                <h2 className="text-lg font-bold text-slate-800 mb-4">测评维度列表</h2>
+                <div className="space-y-3">
+                  {['cognitive', 'skill', 'quality'].map(category => (
+                    <div key={category} className="mb-6">
+                      <h3 className="text-sm font-semibold text-slate-600 mb-3 capitalize">
+                        {category === 'cognitive' ? '认知能力' : category === 'skill' ? '技能能力' : '综合素养'}
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {dimensions
+                          .filter(d => d.category === category)
+                          .map(dim => (
+                            <div key={dim.id} className="bg-slate-50 rounded-xl p-4">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-medium text-slate-800">{dim.name}</p>
+                                  <p className="text-xs text-slate-500">{dim.description || ''}</p>
+                                </div>
+                                <span className={`px-2 py-1 rounded text-xs ${
+                                  dim.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'
+                                }`}>
+                                  {dim.is_system ? '系统' : '自定义'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Courses Content */}
+          {knowledgeTab === 'courses' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <select
+                  value={selectedCourseType}
+                  onChange={(e) => setSelectedCourseType(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="scratch">Scratch图形化</option>
+                  <option value="python">Python编程</option>
+                  <option value="cpp">C++算法</option>
+                  <option value="aigc">AIGC素养</option>
+                  <option value="math">数理逻辑</option>
+                </select>
+                <select
+                  value={selectedGradeRange}
+                  onChange={(e) => setSelectedGradeRange(e.target.value)}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+                >
+                  <option value="1-3">1-3年级</option>
+                  <option value="4-6">4-6年级</option>
+                  <option value="7-9">7-9年级</option>
+                </select>
+              </div>
+
+              <div className="glass-card rounded-3xl p-6">
+                {(() => {
+                  const course = courses.find(c => c.course_type === selectedCourseType && c.grade_range === selectedGradeRange);
+                  if (!course) {
+                    return (
+                      <div className="text-center py-12 text-slate-400">
+                        <BookOpen size={40} className="mx-auto mb-3 opacity-50" />
+                        <p>暂无该课程知识</p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-3">知识点列表</h3>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(course.knowledge_points || []).map((kp: any, i: number) => (
+                            <div key={i} className="bg-slate-50 rounded-lg p-3">
+                              <p className="font-medium text-slate-700">{kp.name}</p>
+                              <p className="text-xs text-slate-500 mt-1">难度: {'★'.repeat(kp.difficulty || 1)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-800 mb-3">学习路径</h3>
+                        <div className="space-y-2">
+                          {(course.learning_path || []).map((path: any, i: number) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">{path.stage}</span>
+                              <span className="text-sm text-slate-600">{(path.points || []).join(' → ')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {course.common_mistakes && course.common_mistakes.length > 0 && (
+                        <div>
+                          <h3 className="text-lg font-bold text-slate-800 mb-3">常见错误</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {(course.common_mistakes || []).map((mistake: any, i: number) => (
+                              <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                <p className="font-medium text-amber-800">{mistake.point}</p>
+                                <p className="text-sm text-amber-700 mt-1">问题: {mistake.error}</p>
+                                {mistake.tip && <p className="text-xs text-amber-600 mt-2">建议: {mistake.tip}</p>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Overview Content */}
+          {knowledgeTab === 'overview' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="glass-card rounded-3xl p-6">
+                <h3 className="text-lg font-bold text-slate-800 mb-4">知识库功能</h3>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-xl">
+                    <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <Brain size={16} className="text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800">智能分析辅助</p>
+                      <p className="text-xs text-slate-500 mt-1">AI智能体调用知识库进行分析</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-emerald-50 rounded-xl">
+                    <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <TrendingUpIcon size={16} className="text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800">成长追踪</p>
+                      <p className="text-xs text-slate-500 mt-1">记录学生能力变化趋势</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl">
+                    <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <PieChart size={16} className="text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800">维度分析</p>
+                      <p className="text-xs text-slate-500 mt-1">多维度能力画像评估</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="glass-card rounded-3xl p-6">
+                <h3 className="text-lg font-bold text-slate-800 mb-4">快速统计</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">已覆盖课程</span>
+                    <span className="font-bold text-slate-800">{courses.length}门</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">定义维度数</span>
+                    <span className="font-bold text-slate-800">{dimensions.length}个</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">系统维度</span>
+                    <span className="font-bold text-emerald-600">{dimensions.filter(d => d.is_system).length}个</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">自定义维度</span>
+                    <span className="font-bold text-blue-600">{dimensions.filter(d => !d.is_system).length}个</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* FAQ Content */}
+          {knowledgeTab === 'faq' && (
+            <div className="space-y-6">
+              {/* FAQ Header */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-slate-800">FAQ知识库管理</h2>
+                <button
+                  onClick={() => { setEditingFaq(null); setFaqForm({ question: '', answer: '', category: 'general', tags: '', status: 'active' }); setFaqModalOpen(true); }}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <Plus size={18} />
+                  新增FAQ
+                </button>
+              </div>
+
+              {/* FAQ Stats */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="glass-card rounded-2xl p-5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                      <BookOpen className="text-blue-600" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-800">{faqs.length}</p>
+                      <p className="text-xs text-slate-500">FAQ总数</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="glass-card rounded-2xl p-5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
+                      <CheckCircle className="text-emerald-600" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-800">{faqs.filter((f: any) => f.status === 'active').length}</p>
+                      <p className="text-xs text-slate-500">已启用</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="glass-card rounded-2xl p-5">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                      <Tag className="text-purple-600" size={20} />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-slate-800">{faqCategories.length}</p>
+                      <p className="text-xs text-slate-500">分类数</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* FAQ Category Filter */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setFaqCategory('')}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                    !faqCategory
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  全部
+                </button>
+                {faqCategories.map((cat: any) => (
+                  <button
+                    key={cat.category}
+                    onClick={() => setFaqCategory(cat.category)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      faqCategory === cat.category
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+                    }`}
+                  >
+                    {cat.category === 'general' ? '通用' : cat.category === 'exam' ? '测评相关' : cat.category === 'course' ? '课程相关' : cat.category === 'account' ? '账户相关' : cat.category === 'technical' ? '技术问题' : cat.category} ({cat.count})
+                  </button>
+                ))}
+              </div>
+
+              {/* FAQ Search */}
+              <div className="glass-card rounded-2xl p-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                  <input
+                    type="text"
+                    placeholder="搜索问题或答案..."
+                    value={faqSearch}
+                    onChange={(e) => setFaqSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+              </div>
+
+              {/* FAQ List */}
+              <div className="space-y-3">
+                {faqs
+                  .filter((f: any) => {
+                    const matchSearch = !faqSearch ||
+                      f.question.toLowerCase().includes(faqSearch.toLowerCase()) ||
+                      f.answer.toLowerCase().includes(faqSearch.toLowerCase());
+                    const matchCategory = !faqCategory || f.category === faqCategory;
+                    return matchSearch && matchCategory;
+                  })
+                  .map((faq: any) => (
+                  <div
+                    key={faq.id}
+                    className="glass-card rounded-2xl border border-slate-100 transition-all"
+                  >
+                    <button
+                      onClick={() => setExpandedFaqId(expandedFaqId === faq.id ? null : faq.id)}
+                      className="w-full flex items-center gap-3 p-4 text-left"
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                        faq.status === 'active' ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        <HelpCircle size={16} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-medium text-sm truncate text-slate-800">
+                            {faq.question}
+                          </h3>
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${
+                            faq.status === 'active'
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {faq.status === 'active' ? '启用' : '停用'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs text-slate-500">
+                            {faq.category === 'general' ? '通用' : faq.category === 'exam' ? '测评相关' : faq.category === 'course' ? '课程相关' : faq.category === 'account' ? '账户相关' : faq.category === 'technical' ? '技术问题' : faq.category}
+                          </span>
+                          {faq.tags && faq.tags.split(',').map((tag: string) => (
+                            <span key={tag} className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {tag.trim()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleEditFaq(faq); }}
+                          className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteFaq(faq.id); }}
+                          className="p-1.5 rounded-lg hover:bg-red-50 text-red-600"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        {expandedFaqId === faq.id ? <ChevronUp size={18} className="text-slate-400" /> : <ChevronDown size={18} className="text-slate-400" />}
+                      </div>
+                    </button>
+
+                    {expandedFaqId === faq.id && (
+                      <div className="px-4 pb-4 pt-0 text-slate-600">
+                        <div className="p-4 rounded-xl text-sm leading-relaxed bg-slate-50">
+                          {faq.answer}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {faqs.filter((f: any) => {
+                  const matchSearch = !faqSearch ||
+                    f.question.toLowerCase().includes(faqSearch.toLowerCase()) ||
+                    f.answer.toLowerCase().includes(faqSearch.toLowerCase());
+                  const matchCategory = !faqCategory || f.category === faqCategory;
+                  return matchSearch && matchCategory;
+                }).length === 0 && (
+                  <div className="text-center py-12 rounded-2xl border bg-white border-slate-200">
+                    <HelpCircle size={48} className="mx-auto text-slate-300 mb-3" />
+                    <p className="text-slate-500">暂无FAQ记录</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* FAQ Modal */}
+      {faqModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="rounded-2xl p-6 w-full max-w-lg bg-white">
+            <h2 className="text-lg font-bold mb-4 text-slate-800">
+              {editingFaq ? '编辑FAQ' : '新增FAQ'}
+            </h2>
+            <form onSubmit={handleSubmitFaq} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">问题</label>
+                <input
+                  type="text"
+                  value={faqForm.question}
+                  onChange={(e) => setFaqForm({ ...faqForm, question: e.target.value })}
+                  className="input-field"
+                  placeholder="请输入问题"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1 text-slate-700">答案</label>
+                <textarea
+                  value={faqForm.answer}
+                  onChange={(e) => setFaqForm({ ...faqForm, answer: e.target.value })}
+                  className="input-field min-h-[120px]"
+                  placeholder="请输入答案"
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">分类</label>
+                  <select
+                    value={faqForm.category}
+                    onChange={(e) => setFaqForm({ ...faqForm, category: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="general">通用</option>
+                    <option value="exam">测评相关</option>
+                    <option value="course">课程相关</option>
+                    <option value="account">账户相关</option>
+                    <option value="technical">技术问题</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">标签</label>
+                  <input
+                    type="text"
+                    value={faqForm.tags}
+                    onChange={(e) => setFaqForm({ ...faqForm, tags: e.target.value })}
+                    className="input-field"
+                    placeholder="用逗号分隔"
+                  />
+                </div>
+              </div>
+              {editingFaq && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-slate-700">状态</label>
+                  <select
+                    value={faqForm.status}
+                    onChange={(e) => setFaqForm({ ...faqForm, status: e.target.value })}
+                    className="input-field"
+                  >
+                    <option value="active">启用</option>
+                    <option value="inactive">停用</option>
+                  </select>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setFaqModalOpen(false)} className="flex-1 btn-secondary py-2.5">取消</button>
+                <button type="submit" className="flex-1 btn-primary py-2.5">保存</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'logs' && (
         <div className="space-y-4">
           {/* Filter Bar */}
@@ -510,7 +1152,7 @@ export default function AdminAIConfig() {
                 onChange={(e) => setLogFilter(e.target.value)}
                 className="text-sm bg-transparent outline-none text-slate-700"
               >
-                <option value="">全部智能体</option>
+                <option value="">全部功能</option>
                 {agents.map(agent => (
                   <option key={agent.key} value={agent.key}>{agent.name}</option>
                 ))}
@@ -533,6 +1175,7 @@ export default function AdminAIConfig() {
               <div className="text-center py-12 text-slate-400">
                 <Activity size={40} className="mx-auto mb-3 opacity-50" />
                 <p>暂无AI使用记录</p>
+                <p className="text-xs text-slate-400 mt-2">当AI功能被调用后，记录将显示在这里</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -544,13 +1187,18 @@ export default function AdminAIConfig() {
                       <th className="text-left py-3 px-2 text-slate-500 font-medium">状态</th>
                       <th className="text-left py-3 px-2 text-slate-500 font-medium">输入摘要</th>
                       <th className="text-left py-3 px-2 text-slate-500 font-medium">耗时</th>
+                      <th className="text-left py-3 px-2 text-slate-500 font-medium">操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredLogs.map((log) => (
-                      <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                      <tr
+                        key={log.id}
+                        className="border-b border-slate-50 hover:bg-slate-50/50 cursor-pointer"
+                        onClick={() => { setSelectedLog(log); setLogModalOpen(true); }}
+                      >
                         <td className="py-3 px-2 text-slate-600 whitespace-nowrap">
-                          {new Date(log.created_at).toLocaleString('zh-CN')}
+                          {formatDateTime(log.created_at)}
                         </td>
                         <td className="py-3 px-2">
                           <span className="px-2 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-medium">
@@ -573,6 +1221,15 @@ export default function AdminAIConfig() {
                         </td>
                         <td className="py-3 px-2 text-slate-600 whitespace-nowrap">
                           {log.duration_ms}ms
+                        </td>
+                        <td className="py-3 px-2">
+                          <button
+                            className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+                            onClick={(e) => { e.stopPropagation(); setSelectedLog(log); setLogModalOpen(true); }}
+                            title="查看详情"
+                          >
+                            <Eye size={16} className="text-slate-500" />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -762,13 +1419,200 @@ export default function AdminAIConfig() {
                         </span>
                       </div>
                       <span className="text-xs text-slate-400 whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString('zh-CN')}
+                        {formatDateTime(log.created_at)}
                       </span>
                     </div>
                   ))}
                 {logs.filter(log => log.feature === selectedAgent.key).length === 0 && (
                   <p className="text-sm text-slate-400 text-center py-4">暂无调用记录</p>
                 )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Log Detail Modal */}
+      {logModalOpen && selectedLog && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 z-50 fade-in"
+            onClick={() => setLogModalOpen(false)}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col fade-in">
+              {/* Header */}
+              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${selectedLog.status === 'success' ? 'bg-emerald-100' : 'bg-red-100'}`}>
+                    {selectedLog.status === 'success' ? (
+                      <Check size={18} className="text-emerald-600" />
+                    ) : (
+                      <AlertCircle size={18} className="text-red-600" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">
+                      {agents.find(a => a.key === selectedLog.feature)?.name || selectedLog.feature}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {formatDateTime(selectedLog.created_at)} · {selectedLog.duration_ms}ms
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setLogModalOpen(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  <XIcon size={20} className="text-slate-400" />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                {/* Status Badge */}
+                <div className="flex items-center gap-2">
+                  {selectedLog.status === 'success' ? (
+                    <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-sm font-medium">
+                      调用成功
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-sm font-medium">
+                      调用失败
+                    </span>
+                  )}
+                </div>
+
+                {/* Context Data */}
+                {selectedLog.context_data && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                      <Database size={16} className="text-purple-500" />
+                      关联数据
+                    </h4>
+                    <div className="bg-purple-50 rounded-xl p-4 text-sm text-slate-600 whitespace-pre-wrap break-all max-h-40 overflow-y-auto border border-purple-100">
+                      {(() => {
+                        try {
+                          const ctx = JSON.parse(selectedLog.context_data);
+                          return Object.entries(ctx).map(([k, v]) => `${k}: ${v}`).join('\n');
+                        } catch {
+                          return selectedLog.context_data;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Input Summary */}
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                    <MessageSquare size={16} className="text-blue-500" />
+                    输入摘要
+                  </h4>
+                  <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-600 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                    {selectedLog.input_summary || '无输入内容'}
+                  </div>
+                </div>
+
+                {/* Full Input */}
+                {selectedLog.input_full && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <FileText size={16} className="text-blue-600" />
+                        完整输入
+                      </h4>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedLog.input_full);
+                          setCopiedField('input');
+                          setTimeout(() => setCopiedField(null), 2000);
+                        }}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        {copiedField === 'input' ? <CheckCircle size={12} /> : <Copy size={12} />}
+                        {copiedField === 'input' ? '已复制' : '复制'}
+                      </button>
+                    </div>
+                    <div className="bg-slate-900 rounded-xl p-4 text-sm text-slate-300 whitespace-pre-wrap break-all max-h-80 overflow-y-auto font-mono text-xs">
+                      {(() => {
+                        try {
+                          return JSON.stringify(JSON.parse(selectedLog.input_full), null, 2);
+                        } catch {
+                          return selectedLog.input_full;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Output Summary */}
+                {selectedLog.output_summary && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
+                      <MessageSquare size={16} className="text-emerald-500" />
+                      输出摘要
+                    </h4>
+                    <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-600 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                      {selectedLog.output_summary}
+                    </div>
+                  </div>
+                )}
+
+                {/* Full Output */}
+                {selectedLog.output_full && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <FileText size={16} className="text-emerald-600" />
+                        完整输出
+                      </h4>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedLog.output_full);
+                          setCopiedField('output');
+                          setTimeout(() => setCopiedField(null), 2000);
+                        }}
+                        className="flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 bg-emerald-50 px-2 py-1 rounded-lg transition-colors"
+                      >
+                        {copiedField === 'output' ? <CheckCircle size={12} /> : <Copy size={12} />}
+                        {copiedField === 'output' ? '已复制' : '复制'}
+                      </button>
+                    </div>
+                    <div className="bg-slate-900 rounded-xl p-4 text-sm text-slate-300 whitespace-pre-wrap break-all max-h-80 overflow-y-auto font-mono text-xs">
+                      {(() => {
+                        try {
+                          return JSON.stringify(JSON.parse(selectedLog.output_full), null, 2);
+                        } catch {
+                          return selectedLog.output_full;
+                        }
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Error Message */}
+                {selectedLog.errorMessage && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-red-600 mb-2 flex items-center gap-2">
+                      <AlertCircle size={16} />
+                      失败原因
+                    </h4>
+                    <div className="bg-red-50 rounded-xl p-4 text-sm text-red-600 whitespace-pre-wrap break-all max-h-60 overflow-y-auto border border-red-100">
+                      {selectedLog.errorMessage}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setLogModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-medium hover:bg-slate-200 transition-colors"
+                >
+                  关闭
+                </button>
               </div>
             </div>
           </div>

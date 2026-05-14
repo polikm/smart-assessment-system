@@ -51,7 +51,7 @@ export default function ExamLoading() {
         const examDetail = await examApi.get(examId);
         // 延迟一下让用户看到完成状态
         setTimeout(() => {
-          navigate('/student/exam', { state: { exam: examDetail, started: true } });
+          navigate('/student/exam-taking', { state: { exam: examDetail } });
         }, 2800);
       } catch (err: any) {
         setError(err.message || '加载试卷失败');

@@ -1,0 +1,178 @@
+{
+  "test_date": "2026-05-12 03:19:33",
+  "environment": {
+    "frontend": "http://localhost:5174",
+    "backend": "http://localhost:3001",
+    "browser": "Edge"
+  },
+  "tests": [
+    {
+      "name": "登录页面加载",
+      "status": "通过",
+      "details": "登录表单正常显示",
+      "screenshot": "01_login_page.png",
+      "timestamp": "03:19:36"
+    },
+    {
+      "name": "学生登录",
+      "status": "通过",
+      "details": "当前URL: http://localhost:5175/login",
+      "screenshot": "02_student_home.png",
+      "timestamp": "03:19:38"
+    },
+    {
+      "name": "学生信息页面",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "03_student_info.png",
+      "timestamp": "03:19:40"
+    },
+    {
+      "name": "测评开始页面",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "04_exam_start.png",
+      "timestamp": "03:19:42"
+    },
+    {
+      "name": "Math测评开始",
+      "status": "失败",
+      "details": "未找到数学思维按钮",
+      "screenshot": null,
+      "timestamp": "03:19:42"
+    },
+    {
+      "name": "答题流程",
+      "status": "通过",
+      "details": "答题交互正常",
+      "screenshot": "06_exam_answering.png",
+      "timestamp": "03:19:42"
+    },
+    {
+      "name": "测评报告页面",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "07_report_page.png",
+      "timestamp": "03:19:44"
+    },
+    {
+      "name": "雷达图维度标签",
+      "status": "警告",
+      "details": "未找到维度标签，可能数据为空",
+      "screenshot": null,
+      "timestamp": "03:19:44"
+    },
+    {
+      "name": "AI分析板块",
+      "status": "警告",
+      "details": "未找到AI分析内容",
+      "screenshot": null,
+      "timestamp": "03:19:44"
+    },
+    {
+      "name": "课程推荐",
+      "status": "警告",
+      "details": "未找到推荐板块",
+      "screenshot": null,
+      "timestamp": "03:19:44"
+    },
+    {
+      "name": "管理端登录",
+      "status": "失败",
+      "details": "Locator.fill: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"input[name=\\\"username\\\"], input[placeholder*=\\\"账号\\\"]\").first\n",
+      "screenshot": null,
+      "timestamp": "03:20:15"
+    },
+    {
+      "name": "管理端-学生管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "09_admin_students.png",
+      "timestamp": "03:20:17"
+    },
+    {
+      "name": "管理端-题目管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "10_admin_questions.png",
+      "timestamp": "03:20:19"
+    },
+    {
+      "name": "管理端-课程管理",
+      "status": "通过",
+      "details": "找到 0 个课程项",
+      "screenshot": "11_admin_courses.png",
+      "timestamp": "03:20:21"
+    },
+    {
+      "name": "管理端-试卷管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "12_admin_exams.png",
+      "timestamp": "03:20:22"
+    },
+    {
+      "name": "管理端-班级管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "13_admin_classes.png",
+      "timestamp": "03:20:24"
+    },
+    {
+      "name": "管理端-证书管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "14_admin_certificates.png",
+      "timestamp": "03:20:26"
+    },
+    {
+      "name": "管理端-知识库管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "15_admin_knowledge.png",
+      "timestamp": "03:20:28"
+    },
+    {
+      "name": "暗色模式切换",
+      "status": "警告",
+      "details": "未找到主题切换按钮",
+      "screenshot": null,
+      "timestamp": "03:20:28"
+    },
+    {
+      "name": "教师端登录",
+      "status": "失败",
+      "details": "Locator.fill: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\"input[name=\\\"username\\\"], input[placeholder*=\\\"账号\\\"]\").first\n",
+      "screenshot": null,
+      "timestamp": "03:20:58"
+    },
+    {
+      "name": "教师端-班级管理",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "18_teacher_classes.png",
+      "timestamp": "03:21:00"
+    },
+    {
+      "name": "教师端-学生测评查看",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "19_teacher_exams.png",
+      "timestamp": "03:21:02"
+    },
+    {
+      "name": "教师端-学生报告查看",
+      "status": "通过",
+      "details": "页面已加载",
+      "screenshot": "20_teacher_reports.png",
+      "timestamp": "03:21:04"
+    }
+  ],
+  "summary": {
+    "total": 23,
+    "passed": 16,
+    "failed": 3,
+    "warning": 4,
+    "pass_rate": "69.6%"
+  }
+}
